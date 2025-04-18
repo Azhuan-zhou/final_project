@@ -1,5 +1,5 @@
 prompt_embeds_path: models/multiview_generator/data/fixed_prompt_embeds_7view
-root_dir: 'data/test'
+root_dir: 'data/THuman/THuman_dataset
 num_views:  7
 bg_color: 'white'
 img_wh:  [768, 768]
