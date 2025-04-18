@@ -5,7 +5,7 @@ import json
 import torch
 from smplx import SMPLX
 
-JOINT_MAP = 'data/smplx_openpose25.json'
+JOINT_MAP = 'data/body_models/smplx_openpose25.json'
 SMPL_PATH = 'data/body_models/smplx'
 
 

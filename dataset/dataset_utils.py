@@ -1,6 +1,7 @@
 """
 Copyright (C) 2024  ETH Zurich, Hsuan-I Ho
 """
+
 import os
 import math
 import h5py
@@ -14,13 +15,13 @@ import numpy as np
 
 from dataset.mesh import load_obj, point_sample, closest_tex, per_face_normals, sample_tex
 from dataset.load_smplx_json import load_json
-
+import pdb
 ###################################################################
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 glctx = nvdiffrast.torch.RasterizeCudaContext(device=device)
 dt = h5py.special_dtype(vlen=np.uint8)
-UV_TEMPLATE = 'data/smplx_uv.obj'
-WATERTIGHT_TEMPLATE = 'data/smplx_watertight.pkl'
+UV_TEMPLATE = 'data/body_models/smplx_uv.obj'
+WATERTIGHT_TEMPLATE = 'data/body_models/smplx_watertight.pkl'
 
 ###################################################################
 
@@ -154,49 +155,12 @@ def sample_points(obj_file, args):
     return point_cloud
 
 
-def render_visiblity(camera, smpl_file, args):
 
-    smpl_V, smpl_F, joint_3d = load_json(smpl_file, device=device)
-    
-    with open(WATERTIGHT_TEMPLATE, 'rb') as f:
-        smpl_mesh = pickle.load(f)
-
-    F = smpl_mesh['smpl_F'].to(device)
-
-    rast0, _ = rasterize(camera, smpl_V, F, args)
-
-    face_idx = (rast0[..., -1:].long() - 1).contiguous()
-    # assign visibility to 1 if face_idx >= 0
-    vv = []
-    for i in range(rast0.shape[0]):
-        vis = torch.zeros((F.shape[0],), dtype=torch.bool, device=device)
-        for f in range(F.shape[0]):
-            vis[f] = 1 if torch.any(face_idx[i] == f) else 0
-        vv.append(vis)
-    vis = torch.stack(vv, dim=0)
-
-    return smpl_V, joint_3d, vis
 
 def render_images(camera, obj_file, smpl_file, args):
-
-    smpl_V, smpl_F, _ = load_json(smpl_file)
-
-    # Render UV map from SMPL-X
-    _, _, UVv, UVf, _ = load_obj(UV_TEMPLATE, load_materials=True)
-
-    rast0, _ = rasterize(camera, smpl_V.to(device), smpl_F.to(device), args)
-
-    smpl_uv = nvdiffrast.torch.interpolate(
-       UVv.to(device), rast0, UVf[...,:3].int().to(device)
-    )[0] % 1.
-
-    # Render RGBA and normal map from the mesh
-
+    # Render RGBA from the mesh
     out = load_obj(obj_file, load_materials=True)
     mesh_V, mesh_F, texv, texf, mats = out
-
-    FN = per_face_normals(mesh_V, mesh_F).to(device)
-
     rast1, _ = rasterize(camera, mesh_V.to(device), mesh_F.to(device), args)
 
     face_idx = (rast1[..., -1].long() - 1).contiguous()
@@ -204,18 +168,19 @@ def render_images(camera, obj_file, smpl_file, args):
     uv_map = nvdiffrast.torch.interpolate(
        texv.to(device), rast1, texf[...,:3].int().to(device)
     )[0] % 1.
-
-    nrm_map = FN[face_idx.view(-1)].view(args.nviews, args.size, args.size, 3)
-
     TM = torch.zeros((args.nviews, args.size, args.size, 1), dtype=torch.long, device=device)
     rgb = sample_tex(uv_map.view(-1, 2), TM.view(-1), mats).view(args.nviews, args.size, args.size, 3)
     mask = (face_idx != -1)
 
-    return smpl_uv.data.cpu(), rgb.data.cpu(), nrm_map.data.cpu(), mask.data.cpu()
+    return rgb.data.cpu(), mask.data.cpu()
 
 
-def generate_data(local_path, args, sub_group):
-
+def generate_data(local_path, args):
+    obj_name = local_path.split('/')[-1]
+    img_save_dir = os.path.join(args.output_path, obj_name,'imgs')
+    os.makedirs(img_save_dir, exist_ok=True)
+    npy_save_dir = os.path.join(args.output_path, obj_name,'params')
+    os.makedirs(npy_save_dir, exist_ok=True)
     # Load the 3D scan and SMPL-X registration
     obj_file = [os.path.join(local_path, f) for f in os.listdir(local_path) if f.endswith(('ply','obj')) 
                  and not f.endswith(('_smpl.obj', '_smplx.obj')) ][0]
@@ -223,72 +188,45 @@ def generate_data(local_path, args, sub_group):
 
     # Initialize the camera
     cameras, camera_dict = init_camera(args)
+    cam_eva = camera_dict['elevation'].reshape(-1, 1)
+    cam_azh = camera_dict['azimuth'].reshape(-1, 1)
+    cam_rad = camera_dict['radius'].reshape(-1, 1)
+    cam_pos = camera_dict['cam_pos'].reshape(-1, 3)
 
-    sub_group.create_dataset('cam_eva', data=camera_dict['elevation'].reshape(-1, 1),
-                              shape=(args.nviews, 1), chunks=True, dtype=np.float32)
-    sub_group.create_dataset('cam_azh', data=camera_dict['azimuth'].reshape(-1, 1),
-                              shape=(args.nviews, 1), chunks=True, dtype=np.float32)
-    sub_group.create_dataset('cam_rad', data=camera_dict['radius'].reshape(-1, 1),
-                                shape=(args.nviews, 1), chunks=True, dtype=np.float32)
-    sub_group.create_dataset('cam_pos', data=camera_dict['cam_pos'].reshape(-1, 3),
-                              shape=(args.nviews, 3), chunks=True, dtype=np.float32)
-
-    # Sample points near the surface of the mesh
-    point_cloud = sample_points(obj_file, args)
-
-    sub_group.create_dataset( 'pts', data=point_cloud['xyz'], shape=(args.nsamples*4, 3),
-                                 chunks=True, dtype=np.float32)
-    sub_group.create_dataset( 'rgb', data=point_cloud['rgb'], shape=(args.nsamples*4, 3),
-                                 chunks=True, dtype=np.float32)
-    sub_group.create_dataset( 'nrm', data=point_cloud ['nrm'], shape=(args.nsamples*4, 3),
-                                 chunks=True, dtype=np.float32)
-    sub_group.create_dataset( 'd', data=point_cloud ['d'], shape=(args.nsamples*4, 1),
-                                 chunks=True, dtype=np.float32)
+    camera_dict = {
+        'cam_eva': cam_eva,
+        'cam_azh': cam_azh, 
+        'cam_rad': cam_rad,
+        'cam_pos': cam_pos
+    }
+    np.save(os.path.join(npy_save_dir, 'camera.npy'), camera_dict)
     
     # Get SMPL-X vertices, joints and visibility labels from the camera
-    V, joint_3d, vis = render_visiblity(cameras, smpl_file, args)
+    V,_, joint_3d  = load_json(smpl_file, device=device)
+    smpl_v = V.cpu().numpy()
+    joints_3d = joint_3d.cpu().numpy()
 
-    sub_group.create_dataset( 'smpl_v', data=V.cpu().numpy(), shape=(10475, 3),
-                                 chunks=True, dtype=np.float32)
-    sub_group.create_dataset( 'joints_3d', data=joint_3d.cpu().numpy(), shape=(135, 3),
-                                 chunks=True, dtype=np.float32)
-    sub_group.create_dataset( 'vis', data=vis.cpu().numpy(), shape=(args.nviews, vis.shape[-1]),
-                                    chunks=True, dtype=bool)
+    smpl_dict = {
+        'vertices': smpl_v,
+        'joints': joints_3d,
+    }
+    np.save(os.path.join(npy_save_dir, 'smpl.npy'), smpl_dict)
 
     # Render the images from the mesh and SMPL-X
-    uv_map, rgb, nrm_map, mask = render_images(cameras, obj_file, smpl_file, args)
-
-    dataset_rgb_img = sub_group.create_dataset('rgb_img', shape=(args.nviews, ), chunks=True, dtype=dt)
-    dataset_nrm_img = sub_group.create_dataset('nrm_img', shape=(args.nviews, ), chunks=True, dtype=dt)
-    dataset_uv_img = sub_group.create_dataset('uv_img', shape=(args.nviews, ), chunks=True, dtype=dt)
-
+    #pdb.set_trace()
+    rgb, mask = render_images(cameras, obj_file, smpl_file, args)
+    
+    
     for i in range(args.nviews):
-        # Save UV map as binary png file
-        img = torch.zeros((args.size, args.size, 3))
-        img[...,:2] = uv_map[i]
-        uv = Image.fromarray((255 * img).numpy().astype(np.uint8), mode='RGB')
-        uv.save('data/tmp.png')
-        with open(f'data/tmp.png', 'rb') as f:
-            img_data = f.read()
-            dataset_uv_img[i] = np.frombuffer(img_data, dtype='uint8')
-
         # Save RGB image as binary png file
         img = torch.zeros((args.size, args.size, 4))
         img[...,:3] = rgb[i]
         img[...,3] = mask[i]
         rgba = Image.fromarray((255 * img).numpy().astype(np.uint8), mode='RGBA')
-        rgba.save('data/tmp.png')
-        with open(f'data/tmp.png', 'rb') as f:
-            img_data = f.read()
-            dataset_rgb_img[i] = np.frombuffer(img_data, dtype='uint8')
+        os.makedirs(os.path.join(img_save_dir, f'view{i:02d}'), exist_ok=True)
+        rgba.save(os.path.join(img_save_dir, f'view{i:02d}','rgb.png'))
+       
 
-        # Save normal map as binary png file
-        img = torch.zeros((args.size, args.size, 4))
-        img[...,:3] = (nrm_map[i] * 0.5 + 0.5)
-        img[...,3] = mask[i]
-        nrm_img = Image.fromarray((255 * img).numpy().astype(np.uint8), mode='RGBA')
-        nrm_img.save('data/tmp.png')
-        with open(f'data/tmp.png', 'rb') as f:
-            img_data = f.read()
-            dataset_nrm_img[i] = np.frombuffer(img_data, dtype='uint8')
+       
+       
             

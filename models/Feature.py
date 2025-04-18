@@ -49,7 +49,7 @@ class FeatureExtractor(torch.nn.Module):
         self.rgb_enc = PositionalEncoding(num_freqs=5)
 
         # load SMPL model
-        neutral_smpl_path = os.path.join('assets', 'SMPL_NEUTRAL.pkl')
+        neutral_smpl_path = os.path.join('data/smplx', 'SMPXL_MALE.pkl')
         self.SMPL_NEUTRAL = SMPL_to_tensor(read_pickle(neutral_smpl_path), device=torch.device('cuda', torch.cuda.current_device()))
         
         

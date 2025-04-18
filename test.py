@@ -1,17 +1,24 @@
-from models.Transformer import ViTVQ, ViTEncoder, ViTDecoder
 import torch
-models = ViTVQ(image_size=512,channels=9)
+import numpy as np
+import pickle
 
-encoder = ViTEncoder(image_size=512, patch_size=16, dim=256,depth=8,heads=8,mlp_dim=2048,channels=9)
-decoder = ViTDecoder(image_size=512, patch_size=16, dim=256,depth=3,heads=8,mlp_dim=2048)
-test_tensor = torch.randn((1,9,512,512))
-smpl_normals={
-            "image_B":torch.randn((1,3,512,512)),
-            "image_R":torch.randn((1,3,512,512)),
-            "image_L":torch.randn((1,3,512,512))
-        }
+def read_pickle(pkl_path):
+    with open(pkl_path, 'rb') as f:
+        u = pickle._Unpickler(f)
+        u.encoding = 'latin1'
+        return u.load()
+    
+def SMPL_to_tensor(params, device):
+    key_ = ['v_template', 'shapedirs', 'J_regressor', 'kintree_table', 'f', 'weights', "posedirs"]
+    for key1 in key_:
+        if key1 == 'J_regressor':
+            params[key1] = torch.tensor(params[key1].toarray().astype(float), dtype=torch.float32, device=device)
+        elif key1 == 'kintree_table' or key1 == 'f':
+            params[key1] = torch.tensor(np.array(params[key1]).astype(float), dtype=torch.long, device=device)
+        else:
+            params[key1] = torch.tensor(np.array(params[key1]).astype(float), dtype=torch.float32, device=device)
+    return params
 
-outs2 = models(test_tensor,smpl_normals)
-
-print(outs2[0].shape)
-print(outs2[1].shape)
+neutral_smpl_path = '/Users/azhuan/Desktop/Final_Design/final_project/data/smplx/SMPLX_MALE.pkl'
+smpl_model = SMPL_to_tensor(read_pickle(neutral_smpl_path), device=torch.device('cpu'))
+print(smpl_model)
