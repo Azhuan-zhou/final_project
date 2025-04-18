@@ -15,7 +15,7 @@ import json
 
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
-SMPLX_PATH = 'data/smplx'
+SMPLX_PATH = 'data/body_models/smplx'
 
 body_model = SMPLX(model_path=SMPLX_PATH, gender='male', use_pca=True, num_pca_comps=12,
                         flat_hand_mean=False, use_face_contour=True).to(device)
@@ -33,6 +33,8 @@ def main(args):
         smpl_data = pickle.load(open(smpl_file,'rb'))
         out_file_name = os.path.splitext(os.path.basename(input_file))[0]
         output_aligned_path = os.path.join(args.output_path, out_file_name)
+        if os.path.exists(output_aligned_path):
+            continue
         os.makedirs(output_aligned_path, exist_ok=True)
 
 
