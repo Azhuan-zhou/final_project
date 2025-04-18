@@ -9,7 +9,7 @@ margin_size: 50
 batch_size: 1
 num_workers: 1
 seed: 600 
-pretrained_model_name_or_path: 'pengHTYX/PSHuman_Unclip_768_6views'
+pretrained_model_name_or_path: 'data/PSHuman'
 
 
 validation_guidance_scales: 3.0

@@ -51,7 +51,7 @@ def run_pshuman_pipeline(pipeline,cfg):
                                        margin_size=cfg.margin_size,
                                        prompt_embeds_path=cfg.prompt_embeds_path,
                                        crop_size=cfg.crop_size,
-                                       smpl_folder=cfg.smpl_folder)
+                                      )
     
     images_cond = []
     for case_id, batch in tqdm(enumerate(dataloader)):
@@ -128,6 +128,7 @@ if __name__ == "__main__":
     cfg = load_config(args.config, cli_args=extras)
     schema = OmegaConf.structured(mvConfig)
     cfg = OmegaConf.merge(schema, cfg)
+    main(cfg)
 
 
 
