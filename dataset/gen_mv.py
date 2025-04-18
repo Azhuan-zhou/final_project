@@ -89,8 +89,11 @@ def run_pshuman_pipeline(pipeline,cfg):
             images_pred = out[bsz:] # (B*Nv, 3, H, W)
             for i in range(bsz//num_views):
                 scene =  batch['filename'][i]
-                scene_dir = os.path.join(cfg.save_dir, scene)
-                os.makedirs(scene_dir, exist_ok=True)
+                scene_rgb_dir = os.path.join(scene,'rgb')
+                scene_normal_dir = os.path.join(scene,'normal')
+                os.makedirs(scene_rgb_dir, exist_ok=True)
+                os.makedirs(scene_normal_dir, exist_ok=True)
+               
 
                 img_in_ = images_cond[-1][i].to(out.device) # front view(default)
                 for j in range(num_views):
@@ -106,8 +109,8 @@ def run_pshuman_pipeline(pipeline,cfg):
                      ## save color and normal---------------------
                     normal_filename = f"normals_{j}_masked.png"
                     rgb_filename = f"color_{j}_masked.png"
-                    save_image(normal, os.path.join(scene_dir, normal_filename))
-                    save_image(color, os.path.join(scene_dir, rgb_filename))
+                    save_image(normal, os.path.join(scene_normal_dir, normal_filename))
+                    save_image(color, os.path.join(scene_rgb_dir, rgb_filename))
      
      
      

@@ -70,7 +70,6 @@ class mvConfig:
     batch_size: int
     num_workers: int
     seed: int
-    save_dir:  str
     validation_guidance_scales: float
     pipe_validation_kwargs: dict
     enable_xformers_memory_efficient_attention: bool

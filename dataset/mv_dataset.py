@@ -90,10 +90,23 @@ class SingleImageDataset(Dataset):
         self.all_faces = []
         if single_image is None:
             if filepaths is None:
+                file_list = []
+              
                 # Get a list of all files in the directory
-                file_list = os.listdir(self.root_dir)
+                object_names = os.listdir(self.root_dir)
+                for object_name in object_names:
+                    img_path = os.path.join(self.root_dir, object_name,'imgs')
+                    view_names = os.listdir(img_path)
+                    for view_name in view_names:
+                        image_path = os.path.join(img_path, view_name,'rgb.png')
+                        if os.path.exists(image_path):
+                            file_list.append(image_path)
+                            
+                        else:
+                            raise FileNotFoundError(f"Image file {image_path} not found.")
             else:
                 file_list = filepaths
+
 
             # Filter the files that end with .png or .jpg
             self.file_list = [file for file in file_list if file.endswith(('.png', '.jpg', '.webp'))]
@@ -101,8 +114,8 @@ class SingleImageDataset(Dataset):
             self.file_list = [single_image]
 
         for file in self.file_list:
-            print(os.path.join(self.root_dir, file))
-            image, alpha = self.load_image(os.path.join(self.root_dir, file), bg_color, return_type='pt')
+            print(file)
+            image, alpha = self.load_image(file, bg_color, return_type='pt')
             self.all_images.append(image)
             self.all_alphas.append(alpha)
             face,_ =  self.load_face(os.path.join(self.root_dir, file), bg_color, return_type='pt')
@@ -263,7 +276,8 @@ class SingleImageDataset(Dataset):
     
     def __getitem__(self, index):
         image = self.all_images[index]
-        filename = self.file_list[index].split('.')[0]
+        scene_path = os.path.dirname(self.file_list[index])
+       
         img_tensors_in = [
             image.permute(2, 0, 1)
         ] * (self.num_views-1) + [
@@ -277,14 +291,14 @@ class SingleImageDataset(Dataset):
             out =  {
             'imgs_in': img_tensors_in,
             'color_prompt_embeddings': color_prompt_embeddings,
-            'filename': filename,
+            'filename': scene_path,
             }
         else:
             out =  {
             'imgs_in': img_tensors_in,
             'normal_prompt_embeddings': normal_prompt_embeddings,
             'color_prompt_embeddings': color_prompt_embeddings,
-            'filename': filename,
+            'filename': scene_path,
             }
         return out
 
