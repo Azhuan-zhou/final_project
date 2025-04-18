@@ -73,6 +73,7 @@ class mvConfig:
     validation_guidance_scales: float
     pipe_validation_kwargs: dict
     enable_xformers_memory_efficient_attention: bool
+    pretrained_model_name_or_path: str
    
 
 

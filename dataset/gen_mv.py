@@ -12,7 +12,6 @@ import torch.nn.functional as F
 from torchvision.utils import save_image
 
 
-
 def load_pshuman_pipeline(pretrained_model="stabilityai/stable-diffusion-2-1-unclip",):
     pipeline = StableUnCLIPImg2ImgPipeline.from_pretrained(pretrained_model,weight_dtype = torch.float16)
     pipeline.unet.enable_xformers_memory_efficient_attention()
@@ -36,7 +35,7 @@ def prepare_multiview_data(root_dir,batch_size=8,num_workers=1,num_views=5,img_w
     return dataloader
 
 
-def save_images():
+
 
 def run_pshuman_pipeline(pipeline,cfg):
     pipeline.set_progress_bar_config(disable=True)
@@ -113,7 +112,10 @@ def run_pshuman_pipeline(pipeline,cfg):
                     save_image(color, os.path.join(scene_rgb_dir, rgb_filename))
      
      
-     
+def main(cfg):
+    pipeline = load_pshuman_pipeline(pretrained_model=cfg.pretrained_model_name_or_path)
+    run_pshuman_pipeline(pipeline, cfg)
+    print("Done!")
      
 # 'front', 'front_right', 'right', 'back', 'left', 'front_left'
 if __name__ == "__main__":
@@ -129,7 +131,7 @@ if __name__ == "__main__":
     cfg = load_config(args.config, cli_args=extras)
     schema = OmegaConf.structured(mvConfig)
     cfg = OmegaConf.merge(schema, cfg)
-    print(cfg)
+
 
 
 
