@@ -27,10 +27,9 @@ def prepare_multiview_data(root_dir,batch_size=8,num_workers=1,num_views=5,img_w
                                  bg_color=bg_color,
                                  margin_size=margin_size,
                                  single_image=single_image,
-                                 filepaths=filepaths,
                                  prompt_embeds_path=prompt_embeds_path,
                                  crop_size=crop_size,
-                                 smpl_folder=smpl_folder)
+                                )
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False,num_workers=num_workers)
     return dataloader
 
@@ -50,8 +49,6 @@ def run_pshuman_pipeline(pipeline,cfg):
                                        img_wh=cfg.img_wh,
                                        bg_color=cfg.bg_color,
                                        margin_size=cfg.margin_size,
-                                       single_image=cfg.single_image,
-                                       filepaths=cfg.filepaths,
                                        prompt_embeds_path=cfg.prompt_embeds_path,
                                        crop_size=cfg.crop_size,
                                        smpl_folder=cfg.smpl_folder)

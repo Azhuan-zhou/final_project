@@ -21,6 +21,7 @@ gdown
 PyOpenGL
 PyOpenGL_accelerate
 loguru===0.5.3
+facenet-pytorch==2.5.2
 PyMCubes
 chumpy
 jpeg4py

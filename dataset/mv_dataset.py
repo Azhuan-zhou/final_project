@@ -9,6 +9,7 @@ import random
 import os
 import PIL
 from icecream import ic
+import pdb
 def add_margin(pil_img, color=0, size=256):
     width, height = pil_img.size
     result = Image.new(pil_img.mode, (size, size), color)
@@ -68,7 +69,6 @@ class SingleImageDataset(Dataset):
         bg_color: str,
         margin_size: int = 0,
         single_image: Optional[PIL.Image.Image] = None,
-        filepaths: Optional[list] = None,
    
         prompt_embeds_path: Optional[str] = None,
         crop_size: Optional[int] = 720,
@@ -85,43 +85,33 @@ class SingleImageDataset(Dataset):
         self.crop_size = crop_size
         self.crop_size = crop_size
         # load all images
-        self.all_images = []
-        self.all_alphas = []
-        self.all_faces = []
+       
         if single_image is None:
-            if filepaths is None:
-                file_list = []
-              
-                # Get a list of all files in the directory
-                object_names = os.listdir(self.root_dir)
-                for object_name in object_names:
-                    img_path = os.path.join(self.root_dir, object_name,'imgs')
-                    view_names = os.listdir(img_path)
-                    for view_name in view_names:
-                        image_path = os.path.join(img_path, view_name,'rgb.png')
-                        if os.path.exists(image_path):
-                            file_list.append(image_path)
-                            
-                        else:
-                            raise FileNotFoundError(f"Image file {image_path} not found.")
-            else:
-                file_list = filepaths
-
-
+            file_list = []
+            bboxes = []
+            scene_list = []
+            # Get a list of all files in the directory
+            object_names = os.listdir(self.root_dir)
+            for object_name in object_names:
+                img_path = os.path.join(self.root_dir, object_name,'imgs')
+                face_info = self.get_face_info(os.path.dirname(img_path))
+                view_names = face_info.keys() # only use the top 10 views
+                for view_name in view_names:
+                    image_path = os.path.join(img_path, view_name,'rgb.png')
+                    if os.path.exists(image_path):
+                        file_list.append(image_path)
+                        bboxes.append(face_info[view_name]['bbox'])
+                    else:
+                        raise FileNotFoundError(f"Image file {image_path} not found.")
             # Filter the files that end with .png or .jpg
-            self.file_list = [file for file in file_list if file.endswith(('.png', '.jpg', '.webp'))]
+            self.file_list = file_list
+            self.bboxes = bboxes
         else:
             self.file_list = [single_image]
+            self.bboxes = [np.array([0, 0, 1, 1])]
 
-        for file in self.file_list:
-            print(file)
-            image, alpha = self.load_image(file, bg_color, return_type='pt')
-            self.all_images.append(image)
-            self.all_alphas.append(alpha)
-            face,_ =  self.load_face(os.path.join(self.root_dir, file), bg_color, return_type='pt')
-            self.all_faces.append(face)
+ 
             
-        ic(len(self.all_images))
         try:
             normal_prompt_embedding = torch.load(f'{prompt_embeds_path}/normal_embeds.pt')
             color_prompt_embedding = torch.load(f'{prompt_embeds_path}/clr_embeds.pt')
@@ -136,11 +126,11 @@ class SingleImageDataset(Dataset):
             self.normal_text_embeds = None
 
     def __len__(self):
-        return len(self.all_images)
+        return len(self.file_list)
 
     def get_face_info(self, file):
-        file_name = file.split('.')[0]
-        face_info = np.load(f'{self.root_dir}/{file_name}_face_info.npy', allow_pickle=True).item()
+        file_name = os.path.join(file, 'face_info.npy')
+        face_info = np.load(file_name, allow_pickle=True).item()
         return face_info
         
 
@@ -168,7 +158,7 @@ class SingleImageDataset(Dataset):
         else:
             image_input = Imagefile
         image_size = self.img_wh[0]
-
+        
         if self.crop_size!=-1:
             alpha_np = np.asarray(image_input)[:, :, 3]
             coords = np.stack(np.nonzero(alpha_np), 1)[:, (1, 0)]
@@ -183,13 +173,14 @@ class SingleImageDataset(Dataset):
         else:
             image_input = add_margin(image_input, size=max(image_input.height, image_input.width))
             image_input = image_input.resize((image_size, image_size))
-
+        
         # img = scale_and_place_object(img, self.scale_ratio)
         img = np.array(image_input)
         img = img.astype(np.float32) / 255. # [0, 1]
         assert img.shape[-1] == 4 # RGBA
 
         alpha = img[...,3:4]
+        
         img = img[...,:3] * alpha + bg_color * (1 - alpha)
 
         if return_type == "np":
@@ -275,13 +266,18 @@ class SingleImageDataset(Dataset):
         return padded_img
     
     def __getitem__(self, index):
-        image = self.all_images[index]
-        scene_path = os.path.dirname(self.file_list[index])
+        bg_color = self.get_bg_color()
+        file_path = self.file_list[index]
+        bbox = self.bboxes[index]
+        image, alpha = self.load_image(file_path, bg_color, return_type='pt')
+        face,_ =  self.load_face(file_path, bg_color, return_type='pt')
+        #face = self.process_face(file_path, bbox.astype(np.int32), bg_color)
+        view_path = os.path.dirname(self.file_list[index])
        
         img_tensors_in = [
             image.permute(2, 0, 1)
         ] * (self.num_views-1) + [
-            self.all_faces[index%len(self.all_images)].permute(2, 0, 1)
+            face.permute(2, 0, 1)
         ]
         img_tensors_in = torch.stack(img_tensors_in, dim=0).float() # (Nv, 3, H, W)
         
@@ -291,14 +287,14 @@ class SingleImageDataset(Dataset):
             out =  {
             'imgs_in': img_tensors_in,
             'color_prompt_embeddings': color_prompt_embeddings,
-            'filename': scene_path,
+            'filename': view_path,
             }
         else:
             out =  {
             'imgs_in': img_tensors_in,
             'normal_prompt_embeddings': normal_prompt_embeddings,
             'color_prompt_embeddings': color_prompt_embeddings,
-            'filename': scene_path,
+            'filename': view_path,
             }
         return out
 
