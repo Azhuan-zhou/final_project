@@ -181,6 +181,8 @@ def generate_data(local_path, args):
     os.makedirs(img_save_dir, exist_ok=True)
     npy_save_dir = os.path.join(args.output_path, obj_name,'params')
     os.makedirs(npy_save_dir, exist_ok=True)
+    point_save_dir = os.path.join(args.output_path, obj_name,'points')
+    os.makedirs(point_save_dir, exist_ok=True)
     # Load the 3D scan and SMPL-X registration
     obj_file = [os.path.join(local_path, f) for f in os.listdir(local_path) if f.endswith(('ply','obj')) 
                  and not f.endswith(('_smpl.obj', '_smplx.obj')) ][0]
@@ -200,7 +202,18 @@ def generate_data(local_path, args):
         'cam_pos': cam_pos
     }
     np.save(os.path.join(npy_save_dir, 'camera.npy'), camera_dict)
-    
+    point_cloud = sample_points(obj_file, args)
+    pts = point_cloud['xyz']
+    rgb = point_cloud['rgb']
+    nrm = point_cloud['nrm']
+    d = point_cloud['d']
+    point_dict = {
+        'xyz': pts,
+        'rgb': rgb,
+        'nrm': nrm,
+        'd': d,
+    }
+    np.save(os.path.join(point_save_dir, 'point.npy'), point_dict)
     # Get SMPL-X vertices, joints and visibility labels from the camera
     V,_, joint_3d  = load_json(smpl_file, device=device)
     smpl_v = V.cpu().numpy()
