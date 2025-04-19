@@ -54,7 +54,7 @@ def run_pshuman_pipeline(pipeline,cfg):
                                       )
     
     images_cond = []
-    for case_id, batch in tqdm(enumerate(dataloader)):
+    for case_id, batch in tqdm(enumerate(dataloader), desc="Processing", total=len(dataloader)):
         """
         bath
             'imgs_in' (bs, Nv, 3, H, W)

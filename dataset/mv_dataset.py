@@ -237,9 +237,7 @@ class SingleImageDataset(Dataset):
         return img, alpha
 
     
-   
-    
-    def process_face(self, img_path, bbox, bg_color, normal_path=None, w2c=None,  h=512, w=512):
+    def process_face(self,img_path, bbox, bg_color, normal_path=None, w2c=None):
         image = Image.open(img_path)
         bbox_w, bbox_h = bbox[2] - bbox[0], bbox[3] - bbox[1]
         if bbox_w > bbox_h:
@@ -250,17 +248,23 @@ class SingleImageDataset(Dataset):
             bbox[2] += (bbox_h - bbox_w) // 2
         bbox[0:2] -= 20
         bbox[2:4] += 20
+        bbox[1] -= 20
+        bbox[3] += 20
         image = image.crop(bbox)
-        
-        image = image.resize((w, h))
+         
+        h, w = image.height, image.width
+
+        scale = self.crop_size / max(h, w)
+        h_, w_ = int(scale * h), int(scale * w)
+        image = image.resize((w_, h_))
         image = np.array(image) / 255.
         img, alpha = image[:, :, :3], image[:, :, 3:4]
         img = img * alpha + bg_color * (1 - alpha)
         
         padded_img = np.full((self.img_wh[0], self.img_wh[1], 3), bg_color, dtype=np.float32)
-        dx = (self.img_wh[0] - w) // 2
-        dy = (self.img_wh[1] - h) // 2
-        padded_img[dy:dy+h, dx:dx+w] = img
+        dx = (self.img_wh[0] - self.crop_size) // 2
+        dy = (self.img_wh[1] - self.crop_size) // 2
+        padded_img[dy:dy+h_, dx:dx+w_] = img
         padded_img = torch.from_numpy(padded_img).permute(2,0,1)
         
         return padded_img
@@ -269,15 +273,19 @@ class SingleImageDataset(Dataset):
         bg_color = self.get_bg_color()
         file_path = self.file_list[index]
         bbox = self.bboxes[index]
+        if bbox is not None:
+            face = self.process_face(file_path, bbox.astype(np.int32), bg_color)
+        else:
+            face,_ =  self.load_face(file_path, bg_color, return_type='pt')
+            face = face.permute(2, 0, 1)
         image, alpha = self.load_image(file_path, bg_color, return_type='pt')
-        face,_ =  self.load_face(file_path, bg_color, return_type='pt')
-        #face = self.process_face(file_path, bbox.astype(np.int32), bg_color)
+        
         view_path = os.path.dirname(self.file_list[index])
        
         img_tensors_in = [
             image.permute(2, 0, 1)
         ] * (self.num_views-1) + [
-            face.permute(2, 0, 1)
+            face
         ]
         img_tensors_in = torch.stack(img_tensors_in, dim=0).float() # (Nv, 3, H, W)
         

@@ -1,19 +1,19 @@
 prompt_embeds_path: models/multiview_generator/data/fixed_prompt_embeds_7view
-root_dir: 'data/THuman/THuman_dataset
-num_views:  7
-bg_color: 'white'
-img_wh:  [768, 768]
+root_dir: "data/THuman/THuman_dataset"
+num_views: 7
+bg_color: "white"
+img_wh: [768, 768]
 num_validation_samples: 1000
 crop_size: 740
 margin_size: 50
 batch_size: 1
 num_workers: 1
-seed: 600 
-pretrained_model_name_or_path: 'data/PSHuman'
-
-
+seed: 600
+pretrained_model_name_or_path: "data/PSHuman"
 validation_guidance_scales: 3.0
+
 pipe_validation_kwargs:
   num_inference_steps: 40
   eta: 1.0
+
 enable_xformers_memory_efficient_attention: true
