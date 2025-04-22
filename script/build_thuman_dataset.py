@@ -6,7 +6,6 @@ import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import os
 import argparse
-import h5py
 from tqdm import tqdm
 from dataset.dataset_utils import generate_data
 

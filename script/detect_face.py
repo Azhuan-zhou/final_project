@@ -3,7 +3,7 @@ from PIL import Image
 import torch
 import  numpy as np
 import os
-# 初始化模型（只取一张人脸）
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 mtcnn = MTCNN(keep_all=True, device=device) 
 

@@ -125,8 +125,66 @@ def init_camera(args):
     camera_dict['elevation'] = elevation.cpu().numpy()
     camera_dict['azimuth'] = azimuth.cpu().numpy()
     camera_dict['radius'] = radius.cpu().numpy()
+    
+    nviews = camera.extrinsics.R.shape[0]
+    R_all = camera.extrinsics.R.detach().cpu().numpy()           # [N, 3, 3]
+    cam_pos_all = camera.extrinsics.cam_pos().detach().cpu().numpy()  # [N, 3]
+
+    T_all = []
+    for R, C in zip(R_all, cam_pos_all):
+        T = -R @ C.reshape(3, 1)  # shape [3, 1]
+        T_all.append(T)
+    T_all = np.stack(T_all, axis=0)  # [N, 3, 1]
+    
+    K_all = []
+
+    if args.camera_mode == 'persp':
+        fx = camera.intrinsics.fx.detach().cpu().numpy()
+        fy = camera.intrinsics.fy.detach().cpu().numpy()
+        cx = camera.intrinsics.cx.detach().cpu().numpy()
+        cy = camera.intrinsics.cy.detach().cpu().numpy()
+
+        for i in range(len(fx)):
+            K = np.array([
+                [fx[i], 0,     cx[i]],
+                [0,     fy[i], cy[i]],
+                [0,     0,     1]
+            ])
+            K_all.append(K)
+    else:
+        for _ in range(len(R_all)):
+            K_all.append(np.eye(3))
+    K_all = np.stack(K_all, axis=0)
+    
+    camera_dict['R'] = R_all         
+    camera_dict['T'] = T_all         
+    camera_dict['K'] = K_all
+
 
     return camera, camera_dict
+
+def render_visiblity(camera, smpl_file, args):
+
+    smpl_V, smpl_F, joint_3d = load_json(smpl_file, device=device)
+    
+    with open(WATERTIGHT_TEMPLATE, 'rb') as f:
+        smpl_mesh = pickle.load(f)
+
+    F = smpl_mesh['smpl_F'].to(device)
+
+    rast0, _ = rasterize(camera, smpl_V, F, args)
+
+    face_idx = (rast0[..., -1:].long() - 1).contiguous()
+    # assign visibility to 1 if face_idx >= 0
+    vv = []
+    for i in range(rast0.shape[0]):
+        vis = torch.zeros((F.shape[0],), dtype=torch.bool, device=device)
+        for f in range(F.shape[0]):
+            vis[f] = 1 if torch.any(face_idx[i] == f) else 0
+        vv.append(vis)
+    vis = torch.stack(vv, dim=0)
+
+    return smpl_V, joint_3d, vis
 
 def sample_points(obj_file, args):
 
@@ -194,12 +252,18 @@ def generate_data(local_path, args):
     cam_azh = camera_dict['azimuth'].reshape(-1, 1)
     cam_rad = camera_dict['radius'].reshape(-1, 1)
     cam_pos = camera_dict['cam_pos'].reshape(-1, 3)
+    R = camera_dict['R']
+    T = camera_dict['T']
+    K = camera_dict['K']
 
     camera_dict = {
         'cam_eva': cam_eva,
         'cam_azh': cam_azh, 
         'cam_rad': cam_rad,
-        'cam_pos': cam_pos
+        'cam_pos': cam_pos,
+        'R': R,
+        'T': T,
+        'K': K,
     }
     np.save(os.path.join(npy_save_dir, 'camera.npy'), camera_dict)
     point_cloud = sample_points(obj_file, args)
@@ -215,13 +279,15 @@ def generate_data(local_path, args):
     }
     np.save(os.path.join(point_save_dir, 'point.npy'), point_dict)
     # Get SMPL-X vertices, joints and visibility labels from the camera
-    V,_, joint_3d  = load_json(smpl_file, device=device)
+    
+    V, joint_3d, vis= render_visiblity(cameras, smpl_file, args)
     smpl_v = V.cpu().numpy()
-    joints_3d = joint_3d.cpu().numpy()
-
+    joint_3d = joint_3d.cpu().numpy()
+    vis = vis.cpu().numpy()
     smpl_dict = {
         'vertices': smpl_v,
-        'joints': joints_3d,
+        'joints': joint_3d,
+        'vis': vis,
     }
     np.save(os.path.join(npy_save_dir, 'smpl.npy'), smpl_dict)
 

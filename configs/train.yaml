@@ -1,0 +1,77 @@
+#global
+seed: 2434
+save_root: logs/THuman
+exp_name: 1d_2d_3d
+device: cuda:0
+#feature_extractor:
+use_global_feature: True
+use_point_level_feature: True
+use_pixel_align_feature: True
+use_trans: True
+
+#dataset
+data_root: 'data/THuman/THuman_dataset'
+smpl_root: 'data/THuman/THuman_smpl'
+img_size: 1024
+num_samples: 20480
+white_bbg: False
+aug_jitter: False
+
+
+#optimizer
+lr_decoder: 0.001
+lr_encoder: 0.0001
+beta1: 0.5
+beta2: 0.999
+weight_decay: 0.0
+
+#scheduler
+lr_scheduler: 'constant_with_warmup'
+lr_warmup_steps: 500
+lr_num_cycles: 1
+lr_power: 1.0
+max_grad_norm: 1.0
+
+#train
+epochs: 5000
+batch_size: 8
+workers: 8
+save_every: 50
+log_every: 500
+log_level: 20
+resume: None
+
+#network:
+pos_dim: 8
+feat_dim: 16
+num_layers: 5
+hidden_dim: 256
+skip: [2,3,4]
+activation: 'lrelu'
+layer_type: 'none'
+
+#embedder:
+shape_freq: 0
+color_freq: 0
+
+#losses:
+lambda_sdf: 10.
+lambda_rgb: 1.
+lambda_nrm: 1.
+lambda_2D: 1.
+use_mask: False
+use_pred_nrm: False
+
+#validation:
+valid: False
+valid_folder: '../data/examples'
+valid_every: 50
+subdivide: True
+grid_size: 512
+erode_iter: 0
+num_valid_samples: 5
+
+#wandb:
+wandb: False
+wandb_id: None
+wandb_name: 'train-recon'

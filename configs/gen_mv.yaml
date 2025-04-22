@@ -3,7 +3,6 @@ root_dir: "data/THuman/THuman_dataset"
 num_views: 7
 bg_color: "white"
 img_wh: [768, 768]
-num_validation_samples: 1000
 crop_size: 740
 margin_size: 50
 batch_size: 1

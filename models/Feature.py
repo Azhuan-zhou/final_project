@@ -76,120 +76,96 @@ class FeatureExtractor(torch.nn.Module):
 
         return in_filter
     
-    
-    def projection_(self, query_pts, Th,R,image_size,device):
-        query_pts = torch.matmul(query_pts - Th, R) #[bs, N_rays*N_samples, 3]
-        
-        query_pts_xy =  query_pts [..., :2] / (query_pts[..., 2:] + 1e-5)
-        query_pts_xy = 2.0 * query_pts_xy.unsqueeze(2).type(torch.float32) / torch.Tensor([image_size, image_size]).to(device) - 1.0 #[bs, N_rays*N_samples, 3]
-        
-        query_pts_xyz = torch.cat([query_pts_xy, query_pts[..., 2:]], dim=-1)
-        query_pts_zy=torch.cat([query_pts_xyz[...,2:],query_pts_xyz[...,1:2]],dim=-1)
-        query_pts_zy = 2.0 * query_pts_zy.unsqueeze(2).type(torch.float32) / torch.Tensor([image_size,image_size]).to(device) - 1.0 #[bs, N_rays*N_samples, 3]
-        return query_pts_xy, query_pts_zy, query_pts_xyz
-    
-    def global_feature(self, input_data,obs_pts):
+    def global_feature(self, input_data):
         """
-        obs_pts: # [bs, N_rays*N_samples, 3]
 
         """
         
-        front_view_img = input_data['obs_img_all'][:,0] # [bs, 3, 512, 512]
-        back_view_img = input_data['obs_img_back'] # [bs, 3, 512, 512]
-        left_view_img = input_data['obs_img_left'] # [bs, 3, 512, 512]
-        right_view_img = input_data['obs_img_right'] # [bs, 3, 512, 512]
-        normal_F = input_data['normal_F'] # [bs, 3, 512, 512]
+        front_view_img = input_data['front_image'] # [bs, 3, 512, 512]
+        left_view_img = input_data['side_images'][2] # [bs, 3, 512, 512]
+        back_view_img = input_data['side_images'][3]# [bs, 3, 512, 512]
+        right_view_img = input_data['side_images'][4] # [bs, 3, 512, 512]
+        normal_F = input_data['front_nrm_img'] # [bs, 3, 512, 512]
         normal_B = input_data['normal_B'] # [bs, 3, 512, 512]
         fuse_image_F=torch.cat([front_view_img,normal_F,normal_B], dim=1)
 
         multi_views={
+            "image_L":left_view_img,
             "image_B":back_view_img,
             "image_R":right_view_img,
-            "image_L":left_view_img
+            
         }
-        F_plane_feat,B_plane_feat,R_plane_feat,L_plane_feat = self.image_filter(fuse_image_F, multi_views) # [bs, 32, 128, 128]) * 4
+        F_plane_feat,L_plane_feat,B_plane_feat,R_plane_feat = self.image_filter(fuse_image_F, multi_views) # [bs, 32, 128, 128]) * 4
         features_F = self.F_filter(normal_F)  # [(B,hg_dim,128,128) * 4]
         features_B = self.F_filter(normal_B)  # [(B,hg_dim,128,128) * 4]
         
         F_plane_feat1,F_plane_feat2=F_plane_feat.chunk(2,dim=1)
+        L_plane_feat1,L_plane_feat2=L_plane_feat.chunk(2,dim=1)
         B_plane_feat1,B_plane_feat2=B_plane_feat.chunk(2,dim=1)
         R_plane_feat1,R_plane_feat2=R_plane_feat.chunk(2,dim=1)
-        L_plane_feat1,L_plane_feat2=L_plane_feat.chunk(2,dim=1)
+        
         in_feat=torch.cat([features_F[-1],features_B[-1]], dim=1)
         
         
-        R = input_data['params']['R'] # [bs, 3, 3]
-        Th = input_data['params']['Th'] #.astype(np.float32) [bs, 1, 3]
-        obs_pts_xy,obs_pts_zy,obs_pts_xyz = self.projection_(obs_pts, Th, R, front_view_img.shape[-1],device=front_view_img.device) # [bs, N_rays*N_samples, 3]
+        pts = input_data['xyz'] # [bs,N, 3]
+        xy =  pts[:,:2]
+        zy = pts[:,[2,1]]
        
+        smpl_pts = input_data['smpl_v'] 
         
-        smpl_pts = input_data['vertices'] 
-        smpl_pts_xy,smpl_pts_zy,smpl_pts_xyz = self.projection_(smpl_pts, Th, R, front_view_img.shape[-1],device=front_view_img.device)
+        if smpl_pts.shape[0] == 1:
+            smpl_pts = smpl_pts.unsqueeze(0)
+        smpl_xy = smpl_pts[:,:2]
+        smpl_zy = smpl_pts[:,[2,1]]
         
        
-        
-        self.point_feat_extractor = PointFeat(input_data['obs_vertices'],
+        self.point_feat_extractor = PointFeat(input_data['smpl_v'],
                                                self.SMPL_NEUTRAL['f'])
-        vis = self.point_feat_extractor.query(obs_pts_xyz, smpl_vis)
         
-        F_feat=F.grid_sample(F_plane_feat1, obs_pts_xy, align_corners=True)[..., 0].permute(0,2,1)  # [B, N_rays*N_samples, C]
-        B_feat=F.grid_sample(B_plane_feat1, obs_pts_xy, align_corners=True)[..., 0].permute(0,2,1)  # [B, N_rays*N_samples, C]
-        R_feat=F.grid_sample(R_plane_feat1, obs_pts_zy, align_corners=True)[..., 0].permute(0,2,1)  # [B, N_rays*N_samples, C]
-        L_feat=F.grid_sample(L_plane_feat1, obs_pts_zy, align_corners=True)[..., 0].permute(0,2,1)  # [B, N_rays*N_samples, C]
-        in_feat_xy = F.grid_sample(in_feat,obs_pts_xy, align_corners=True)[..., 0].permute(0,2,1)  # [B,  N_rays*N_samples, C]
-        normal_feat=feat_select(in_feat_xy,vis)
+        #vis = input_data['vis']
+        #vis = self.point_feat_extractor.query(pts, smpl_vis)
+        
+        F_feat = self._query_feature(F_plane_feat1, xy)  # [B, N, C]
+        B_feat = self._query_feature(B_plane_feat1, xy)  # [B, N, C]
+        R_feat = self._query_feature(R_plane_feat1, zy)  # [B, N, C]
+        L_feat = self._query_feature(L_plane_feat1, zy)  # [B, N, C]
+        
+        in_feat_xy = self._query_feature(in_feat,xy) # [B,  N, C]
+        #normal_feat=feat_select(in_feat_xy,vis)
+        
+        
         three_plane_feat=(B_feat+R_feat+L_feat)/3
         triplane_feat=torch.cat([F_feat,three_plane_feat],dim=1)  # 32+32=64
         
-        smpl_F_feat=F.grid_sample(F_plane_feat2,smpl_pts_xy,align_corners=True)[..., 0].permute(0,2,1)  # [B, num_views*6890, C]
-        smpl_B_feat=F.grid_sample(B_plane_feat2,smpl_pts_xy,align_corners=True)[..., 0].permute(0,2,1)  # [B, num_views*6890, C]
-        smpl_R_feat=F.grid_sample(R_plane_feat2,smpl_pts_zy,align_corners=True)[..., 0].permute(0,2,1)  # [B, num_views*6890, C]
-        smpl_L_feat=F.grid_sample(L_plane_feat2,smpl_pts_zy,align_corners=True)[..., 0].permute(0,2,1)  # [B, num_views*6890, C]
+        
+        smpl_F_feat = self._query_feature(F_plane_feat2, smpl_xy)  # [B, N, C]
+        smpl_B_feat = self._query_feature(B_plane_feat2, smpl_xy)
+        smpl_R_feat = self._query_feature(R_plane_feat2, smpl_zy)  # [B, N, C]
+        smpl_L_feat = self._query_feature(L_plane_feat2, smpl_zy)  # [B, N, C]
+        
         smpl_three_plane_feat=(smpl_B_feat+smpl_R_feat+smpl_L_feat)/3
         smpl_triplane_feat=torch.cat([smpl_F_feat,smpl_three_plane_feat],dim=1)    # 32+32=64
-        bary_centric_feat=self.point_feat_extractor.query_barycentirc_feats(obs_pts_xyz,smpl_triplane_feat) 
+        bary_centric_feat=self.point_feat_extractor.query_barycentirc_feats(pts,smpl_triplane_feat) 
         
-        global_feat=torch.cat([triplane_feat,bary_centric_feat.permute(0,2,1),normal_feat],dim=1)  # 64+64+6=134
+        global_feat=torch.cat([triplane_feat,bary_centric_feat.permute(0,2,1)],dim=1)  # 64+64=128
         return global_feat
         
         
-        
-        
-       
-       
-        
-    def point_level_F(self, input_data,coarse_canonical_pts):
-        obs_input_img = input_data['obs_img_all'][:,0] # [bs, 3, 512, 512]
-        obs_input_feature = self.encoder_2d_feature(obs_input_img, extract_feature=True) # [bs, 64, 256, 256]
-         # extract pixel aligned 2d feature
-        bs = coarse_canonical_pts.shape[0]
-        _, world_src_pts, _ = self.coarse_deform_c2source(input_data['obs_params'], input_data['t_params'], input_data['t_vertices'], coarse_canonical_pts)
-        src_uv = self.projection(world_src_pts.reshape(bs, -1, 3), input_data['obs_R_all'], input_data['obs_T_all'], input_data['obs_K_all']) # [bs, N, 6890, 3]
-        src_uv = src_uv.view(-1, *src_uv.shape[2:])
-        src_uv_ = 2.0 * src_uv.unsqueeze(2).type(torch.float32) / torch.Tensor([obs_input_img.shape[-1], obs_input_img.shape[-2]]).to(obs_input_img.device) - 1.0
-        point_pixel_feature = F.grid_sample(obs_input_feature, src_uv_, align_corners=True)[..., 0].permute(0,2,1)  # [B, N, C]
-
-        # extract pixel aligned rgb feature
-        point_pixel_rgb = F.grid_sample(obs_input_img, src_uv_, align_corners=True)[..., 0].permute(0,2,1)  # [B, N, C]
-        
-        sh = point_pixel_rgb.shape
-        point_pixel_rgb = self.rgb_enc(point_pixel_rgb.reshape(-1,3)).reshape(*sh[:2], 33)[..., :32] # [bs, N_rays*N_samples, 32] 
-        point_level_feature = torch.cat((point_pixel_feature, point_pixel_rgb), dim=-1) # [bs, N_rays*N_samples, 96] 
-        return point_level_feature
-        
-    def pixel_align_F(self, input_data,coarse_canonical_pts):
+    def point_level_F(self, input_data,):
         # get vertex feature to form sparse convolution tensor
-        obs_input_img = input_data['obs_img_all'][:,0] # [bs, 3, 512, 512]
+        obs_input_img = input_data['front_image'] # [bs, 3, 512, 512]
         obs_input_feature = self.encoder_2d_feature(obs_input_img, extract_feature=True) # [bs, 64, 256, 256]
+        
+       
         
         bs = obs_input_img.shape[0]
-        obs_vertex_pts = input_data['obs_vertices'] # [bs, 6890, 3]
-        obs_uv, obs_smpl_vertex_mask = self.projection(obs_vertex_pts.reshape(bs, -1, 3), input_data['obs_R_all'], input_data['obs_T_all'], input_data['obs_K_all'], self.SMPL_NEUTRAL['f']) # [bs, N, 6890, 3]
-        obs_uv = obs_uv.view(-1, *obs_uv.shape[2:]) # [bs, N_rays*N_rand, 2]
-        obs_uv_ = 2.0 * obs_uv.unsqueeze(2).type(torch.float32) / torch.Tensor([obs_input_img.shape[-1], obs_input_img.shape[-2]]).to(obs_input_img.device) - 1.0
-        obs_vertex_feature = F.grid_sample(obs_input_feature, obs_uv_, align_corners=True)[..., 0].permute(0,2,1)  # [B, N, C]
+        obs_vertex_pts = input_data['smpl_v'] # [bs, 6890, 3]
+        obs_smpl_vertex_mask = input_data['vis_class']
+        obs_uv = obs_vertex_pts[:,:,:2] # [bs, 6890, 2]
+        obs_vertex_feature = self._query_feature(obs_input_feature, obs_uv)  # [B, N, C]
         # obs_img = obs_input_img.reshape(-1, *obs_input_img.shape[2:])
-        obs_vertex_rgb = F.grid_sample(obs_input_img, obs_uv_, align_corners=True)[..., 0].permute(0,2,1)  # [B, N, C]
+        obs_vertex_rgb = self._query_feature(obs_input_img, obs_uv)  # [B, N, C]
+        
         #   obs_vertex_rgb = obs_vertex_rgb.view(bs, -1 , *obs_vertex_rgb.shape[1:]).transpose(2,3)
         sh = obs_vertex_rgb.shape
         obs_vertex_rgb = self.rgb_enc(obs_vertex_rgb.reshape(-1,3)).reshape(*sh[:2], 33)[..., :32] # [bs, N_rays*N_samples, 32] 
@@ -197,107 +173,71 @@ class FeatureExtractor(torch.nn.Module):
         obs_vertex_3d_feature = self.conv1d_projection_1(obs_vertex_3d_feature.permute(0,2,1)).permute(0,2,1)
         obs_vertex_3d_feature[obs_smpl_vertex_mask==0] = 0
         ## vertex points in SMPL coordinates
-        smpl_obs_pts = torch.matmul(obs_vertex_pts.reshape(bs, -1, 3) - input_data['obs_params']['Th'], input_data['obs_params']['R'])
+        smpl_obs_pts = obs_vertex_pts.reshape(bs, -1, 3)
         ## coarse deform target to caonical
-        coarse_obs_vertex_canonical_pts = self.coarse_deform_target2c(input_data['obs_params'], input_data['obs_vertices'], input_data['t_params'], smpl_obs_pts) # [bs, N_rays*N_rand, 3]       
+        coarse_obs_vertex_canonical_pts = self.coarse_deform_target2c(input_data['obs_params'], obs_vertex_pts, input_data['t_params'], smpl_obs_pts) # [bs, N_rays*N_rand, 3]       
         # prepare sp input
         obs_sp_input, _ = self.prepare_sp_input(input_data['t_vertices'], coarse_obs_vertex_canonical_pts)
         canonical_sp_conv_volume = spconv.core.SparseConvTensor(obs_vertex_3d_feature.reshape(-1, obs_vertex_3d_feature.shape[-1]), obs_sp_input['coord'], obs_sp_input['out_sh'], obs_sp_input['batch_size']) # [bs, 32, 96, 320, 384] z, y, x
+        
+        smpl_query_pts = input_data['xyz'] # [bs, N, 3]
+        distance, vertex_id, _ = knn_points(smpl_query_pts.float(),  obs_vertex_pts.float(), K=1)
+        distance = distance.view(distance.shape[0], -1)
+        pts_mask = torch.zeros_like(smpl_query_pts[...,0]).int()
+        threshold = 0.05 ** 2 
+        pts_mask[distance < threshold] = 1
+        smpl_query_pts = smpl_query_pts[pts_mask==1].unsqueeze(0)
+        coarse_canonical_pts = self.coarse_deform_target2c(input_data['obs_params'], obs_vertex_pts, input_data['t_params'], smpl_query_pts)
         
         
         grid_coords = self.get_grid_coords(coarse_canonical_pts, obs_sp_input)
         # grid_coords = grid_coords.view(bs, -1, 3)
         grid_coords = grid_coords[:, None, None]
-        pixel_align_feature = self.encoder_3d(canonical_sp_conv_volume, grid_coords) # torch.Size([b, 390, 1024*64])
-        pixel_align_feature = self.conv1d_projection_2(pixel_align_feature.permute(0,2,1)).permute(0,2,1) # torch.Size([b, N, 96])
-        return  pixel_align_feature
-            
-    def projection(self, query_pts, R, T, K, face=None,zy=False):
-        RT = torch.cat([R, T], -1)
-        xyz = torch.repeat_interleave(query_pts.unsqueeze(dim=1), repeats=RT.shape[1], dim=1) #[bs, view_num, , 3]
-        xyz = torch.matmul(RT[:, :, None, :, :3].float(), xyz[..., None].float()) + RT[:, :, None, :, 3:].float()
-        if face is not None:
-            # compute the normal vector for each vertex
-            smpl_vertex_normal = compute_normal(query_pts, face) # [bs, 6890, 3]
-            smpl_vertex_normal_cam = torch.matmul(RT[:, :, None, :, :3].float(), smpl_vertex_normal[:, None, :, :, None].float()) # [bs, 1, 6890, 3, 1]
-            smpl_vertex_mask = (smpl_vertex_normal_cam * xyz).sum(-2).squeeze(1).squeeze(-1) < 0 
-        # xyz = torch.bmm(xyz, K.transpose(1, 2).float())
-        xyz = torch.matmul(K[:, :, None].float(), xyz)[..., 0]
-        xy = xyz[..., :2] / (xyz[..., 2:] + 1e-5)
-       
-        if face is not None:
-            return xy, smpl_vertex_mask 
-        else:
-            if zy:
-                pts_xyz = torch.cat([xy, xyz[..., 2:]], -1)
-                pts_zy=torch.cat([pts_xyz[...,2:],pts_xyz[...,1:2]],dim=-1)
-                return xy, pts_zy
-            else:
-                
-                return xy
-            
-    def coarse_deform_c2source(self, params, t_params, t_vertices, query_pts, weights_correction=0):
-        bs = query_pts.shape[0]
-        # Find nearest smpl vertex
-        smpl_pts = t_vertices
-        _, vert_ids, _ = knn_points(query_pts.float(), smpl_pts.float(), K=1)
-        bweights = self.SMPL_NEUTRAL['weights'][vert_ids].view(*vert_ids.shape[:2], 24).cuda()
-        # add weights_correction, normalize weights
-        bweights = bweights + 0.2 * weights_correction # torch.Size([30786, 24])
-        bweights = bweights / torch.sum(bweights, dim=-1, keepdim=True)
-
-        ### From Big To T Pose
-        big_pose_params = t_params
-        A, R, Th, joints = get_transform_params_torch(self.SMPL_NEUTRAL, big_pose_params)
-        A = torch.matmul(bweights, A.reshape(bs, 24, -1))
-        A = torch.reshape(A, (bs, -1, 4, 4))
-        query_pts = query_pts - A[..., :3, 3]
-        R_inv = torch.inverse(A[..., :3, :3].float())
-        query_pts = torch.matmul(R_inv, query_pts[..., None]).squeeze(-1)
-
-        self.mean_shape = True
-        if self.mean_shape:
+        point_level_feature = self.encoder_3d(canonical_sp_conv_volume, grid_coords) # torch.Size([b, 390, 1024*64])
+        point_level_feature = self.conv1d_projection_2(point_level_feature.permute(0,2,1)).permute(0,2,1) # torch.Size([b, N, 96])
+        return  point_level_feature
+    
+           
         
-            posedirs = self.SMPL_NEUTRAL['posedirs'].cuda().float()
-            pose_ = big_pose_params['poses']
-            ident = torch.eye(3).cuda().float()
-            batch_size = pose_.shape[0]
-            rot_mats = batch_rodrigues(pose_.view(-1, 3)).view([batch_size, -1, 3, 3])
-            pose_feature = (rot_mats[:, 1:, :, :] - ident).view([batch_size, -1]).cuda()
-            pose_offsets = torch.matmul(pose_feature.unsqueeze(1), posedirs.view(6890*3, -1).transpose(1,0).unsqueeze(0)).view(batch_size, -1, 3)
-            pose_offsets = torch.gather(pose_offsets, 1, vert_ids.expand(-1, -1, 3)) # [bs, N_rays*N_samples, 3]
-            query_pts = query_pts - pose_offsets
-            # From mean shape to normal shape
-            shapedirs = self.SMPL_NEUTRAL['shapedirs'].cuda()
-            shape_offset = torch.matmul(shapedirs.unsqueeze(0), torch.reshape(params['shapes'].cuda(), (batch_size, 1, 10, 1))).squeeze(-1)
-            shape_offset = torch.gather(shape_offset, 1, vert_ids.expand(-1, -1, 3)) # [bs, N_rays*N_samples, 3]
-            query_pts = query_pts + shape_offset
-            posedirs = self.SMPL_NEUTRAL['posedirs'].cuda().float()
-            pose_ = params['poses']
-            ident = torch.eye(3).cuda().float()
-            batch_size = pose_.shape[0]
-            rot_mats = batch_rodrigues(pose_.view(-1, 3)).view([batch_size, -1, 3, 3])
-            pose_feature = (rot_mats[:, 1:, :, :] - ident).view([batch_size, -1]).cuda()
-            pose_offsets = torch.matmul(pose_feature.unsqueeze(1), posedirs.view(6890*3, -1).transpose(1,0).unsqueeze(0)).view(batch_size, -1, 3)
-            pose_offsets = torch.gather(pose_offsets, 1, vert_ids.expand(-1, -1, 3)) # [bs, N_rays*N_samples, 3]
-            query_pts = query_pts + pose_offsets
-        # get tar_pts, smpl space source pose
-        A, R, Th, joints = get_transform_params_torch(self.SMPL_NEUTRAL, params)
-        self.s_A = A
-        A = torch.matmul(bweights, self.s_A.reshape(bs, 24, -1))
-        A = torch.reshape(A, (bs, -1, 4, 4))
-        can_pts = torch.matmul(A[..., :3, :3], query_pts[..., None]).squeeze(-1)
-        smpl_src_pts = can_pts + A[..., :3, 3]
-        # transform points from the smpl space to the world space
-        R_inv = torch.inverse(R)
-        world_src_pts = torch.matmul(smpl_src_pts, R_inv) + Th
-        return smpl_src_pts, world_src_pts, bweights
+    def pixel_align_F(self, input_data):
+        obs_input_img = input_data['front_image']  # [bs, 3, 512, 512]
+        obs_input_feature = self.encoder_2d_feature(obs_input_img, extract_feature=True) # [bs, 64, 256, 256]
+         # extract pixel aligned 2d feature
+        bs = obs_input_img.shape[0]
+        
+        src_uv = input_data['xyz'][:,:2] # [bs, 3]
+        point_pixel_feature = self._query_feature(obs_input_feature, src_uv)  # [B, N, C]
+       
+        # extract pixel aligned rgb feature
+        point_pixel_rgb = self._query_feature(obs_input_img, src_uv)  # [B, N, C]
+     
+        sh = point_pixel_rgb.shape
+        point_pixel_rgb = self.rgb_enc(point_pixel_rgb.reshape(-1,3)).reshape(*sh[:2], 33)[..., :32] # [bs, N_rays*N_samples, 32] 
+        pixel_level_feature = torch.cat((point_pixel_feature, point_pixel_rgb), dim=-1) # [bs, N_rays*N_samples, 96] 
+        return pixel_level_feature
+            
+    def _query_feature(self, feat, uv):
+        '''
+        extract image features at floating coordinates with bilinear interpolation
+        args:
+            feat: [B, C, H, W] image features
+            uv: [B, N, 2] normalized image coordinates ranged in [-1, 1]
+        return:
+            [B, N, C] sampled pixel values
+        '''
+        xy = torch.clip(uv, -1, 1).clone()
+        xy[..., 1] = -xy[..., 1]
+
+        samples = torch.nn.functional.grid_sample(feat, xy.unsqueeze(2), align_corners=True)
+        return samples[:, :, :, 0].permute(0, 2, 1)
+            
+    
         
     def coarse_deform_target2c(self, params, vertices, t_params, query_pts, query_viewdirs = None):
         bs = query_pts.shape[0]
         # joints transformation
-        A, R, Th, joints = get_transform_params_torch(self.SMPL_NEUTRAL, params)
-        smpl_pts = torch.matmul((vertices - Th), R)
+        A, joints = get_transform_params_torch(self.SMPL_NEUTRAL, params)
+        smpl_pts = vertices 
         _, vert_ids, _ = knn_points(query_pts.float(), smpl_pts.float(), K=1)
         bweights = self.SMPL_NEUTRAL['weights'][vert_ids].view(*vert_ids.shape[:2], 24)#.to(vertices.device)
         # From smpl space target pose to smpl space canonical pose
@@ -338,7 +278,7 @@ class FeatureExtractor(torch.nn.Module):
             # shape_offset = torch.matmul(shapedirs.unsqueeze(0), torch.reshape(big_pose_params['shapes'].cuda(), (batch_size, 1, 10, 1))).squeeze(-1)
             # shape_offset = torch.gather(shape_offset, 1, vert_ids.expand(-1, -1, 3)) # [bs, N_rays*N_samples, 3]
             # can_pts = can_pts + shape_offset
-        A, R, Th, joints = get_transform_params_torch(self.SMPL_NEUTRAL, big_pose_params)
+        A, joints = get_transform_params_torch(self.SMPL_NEUTRAL, big_pose_params)
         A = torch.matmul(bweights, A.reshape(bs, 24, -1))
         A = torch.reshape(A, (bs, -1, 4, 4))
         can_pts = torch.matmul(A[..., :3, :3], can_pts[..., None]).squeeze(-1)
@@ -372,11 +312,9 @@ def get_transform_params_torch(smpl, params):
 
     A = get_rigid_transformation_torch(rot_mats, joints, parents)
 
-    # apply global transformation
-    R = params['R'] 
-    Th = params['Th'] 
+  
 
-    return A, R, Th, joints
+    return A, joints
 
 
 def batch_rodrigues_torch(poses):

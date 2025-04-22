@@ -427,11 +427,11 @@ class ViTVQ(pl.LightningModule):
         left_query=muti_views['image_L']
         # quant = self.post_quant(quant)
         dec_F = self.F_decoder(enc_out)
+        dec_L = self.L_decoder(enc_out,left_query)
         dec_B = self.B_decoder(enc_out,back_query)
         dec_R = self.R_decoder(enc_out,right_query)
-        dec_L = self.L_decoder(enc_out,left_query)
         
-        return (dec_F,dec_B,dec_R,dec_L)
+        return (dec_F,dec_L,dec_B,dec_R)
 
     # def encode_codes(self, x: torch.FloatTensor) -> torch.LongTensor:
     #     h = self.encoder(x)

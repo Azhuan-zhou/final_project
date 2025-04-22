@@ -12,7 +12,7 @@ import cv2
 from tqdm import tqdm
 from smplx import SMPLX
 import json
-
+import shutil
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 
 SMPLX_PATH = 'data/body_models/smplx'

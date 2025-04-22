@@ -69,7 +69,6 @@ class SingleImageDataset(Dataset):
         bg_color: str,
         margin_size: int = 0,
         single_image: Optional[PIL.Image.Image] = None,
-   
         prompt_embeds_path: Optional[str] = None,
         crop_size: Optional[int] = 720,
         ) -> None:

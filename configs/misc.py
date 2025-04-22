@@ -63,7 +63,6 @@ class mvConfig:
     num_views:  int
     bg_color: str
     img_wh:  list
-    num_validation_samples: int
     crop_size: int
     margin_size: int
     smpl_folder: str
@@ -74,6 +73,86 @@ class mvConfig:
     pipe_validation_kwargs: dict
     enable_xformers_memory_efficient_attention: bool
     pretrained_model_name_or_path: str
-   
+    
+    
+    
+@dataclass
+class TrainConfig:
+    #global
+    seed: int
+    save_root: str
+    exp_name: str
+    device: str
+    #feature_extractor:
+    use_global_feature: bool
+    use_point_level_feature: bool
+    use_pixel_align_feature: bool
+    use_trans: bool
+
+    #dataset
+    data_root: str
+    img_size: int
+    num_samples: int
+    white_bbg: bool
+    aug_jitter: bool
+
+    #optimizer
+    lr_decoder: float
+    lr_encoder: float
+    beta1:float
+    beta2: float
+    weight_decay:float
+
+    #scheduler
+    lr_scheduler: str
+    lr_warmup_steps: int
+    lr_num_cycles: int
+    lr_power: float
+    max_grad_norm: float
+
+    #train
+    epochs: int
+    batch_size: int
+    workers: int
+    save_every: int
+    log_every: int
+    log_level: int
+    resume: Optional[str] 
+
+    #network:
+    pos_dim: int
+    feat_dim: int
+    num_layers: int
+    hidden_dim: int
+    skip: list
+    activation: str
+    layer_type: str
+
+    #embedder:
+    shape_freq: int
+    color_freq: int
+
+    #losses:
+    lambda_sdf: float
+    lambda_rgb: float
+    lambda_nrm: float
+    lambda_2D: float
+    use_mask: bool
+    use_pred_nrm: bool
+
+    #validation:
+    valid: bool
+    valid_folder: str
+    valid_every: int
+    subdivide: bool
+    grid_size: int
+    erode_iter: int
+    num_valid_samples: int
+
+    #wandb:
+    wandb: bool
+    wandb_id: Optional[str] 
+    wandb_name: str
+
 
 
