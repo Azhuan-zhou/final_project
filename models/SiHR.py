@@ -21,36 +21,16 @@ from models.Feature import FeatureExtractor
 
 
 
-class Renderer(torch.nn.Module):
+class ReconModel(torch.nn.Module):
     def __init__(self, cfg,watertight, can_V):
         super().__init__()
         self.cfg = cfg
         self.log_dict = {}
         self._init_log_dict()
         #feature extractor
-        self.use_global_feature = cfg.use_global_feature
-        self.use_point_level_feature = cfg.use_point_level_feature
-        self.use_pixel_align_feature = cfg.use_pixel_align_feature
         self.feature_extractor = FeatureExtractor()
         self.use_trans = cfg.use_trans
-        if cfg.use_global_feature:
-            if cfg.use_point_level_feature and cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(128 + 96 + 96, 32, 1)
-            elif cfg.use_point_level_feature and not cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(128 + 96, 32, 1)
-            elif not cfg.use_point_level_feature and cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(128 + 96, 32, 1)
-            elif not cfg.use_point_level_feature and not cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(128, 32, 1)
-        else:
-            if cfg.use_point_level_feature and cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(96 + 96, 32, 1)
-            elif cfg.use_point_level_feature and not cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(96, 32, 1)
-            elif not cfg.use_point_level_feature and cfg.use_pixel_align_feature:
-                self.conv1d_reprojection = nn.Conv1d(96, 32, 1)
-            else:
-                self.conv1d_reprojection = None
+        self.conv1d_reprojection = nn.Conv1d(128*2, 32, 1)
         self.transformer = Transformer(32)
 
         self.pos_enc = PositionalEncoding(num_freqs=6)
@@ -69,28 +49,13 @@ class Renderer(torch.nn.Module):
         feats = []
         smpl_v = input_data['smpl_v']
         vis_class = input_data['vis_class']
-        if self.use_global_feature:
-            global_feature = self.feature_extractor.global_feature(input_data) # 128
-            feats.append(global_feature)
-
-        if self.use_point_level_feature:
-            point_level_feature = self.feature_extractor.point_level_F(input_data) # [bs, N_rays*N_samples, 96]
-            feats.append(point_level_feature)
-
-        if self.use_pixel_align_feature:
-            pixel_align_feature = self.feature_extractor.pixel_align_F(input_data) # torch.Size([b, N, 96])
-            feats.append(pixel_align_feature)
-            
-        if feats == []:
-            raise ValueError
-        
-        combined_feats =  torch.cat(feats,dim=-1) 
+        feats = self.FeatureExtractor.extract_features(input_data,pts,smpl_v)
         if geo:
-            pred_sdf, pred_nrm = self.geo_model(combined_feats,pts,smpl_v,vis_class)
+            pred_sdf, pred_nrm = self.geo_model(feats,pts,smpl_v,vis_class)
         else: 
             pred_sdf, pred_nrm = None, None
         if tex:
-            pred_rgb = self.tex_model(combined_feats,pts,smpl_v,vis_class)
+            pred_rgb = self.tex_model(feats,pts,smpl_v,vis_class)
         else:
             pred_rgb = None
         return pred_sdf,pred_nrm,pred_rgb
@@ -113,7 +78,7 @@ class Renderer(torch.nn.Module):
     
     
     def forward(self,input_data):
-        pts = input_data['xyz']
+        pts = input_data['pts']
         pred_sdf,pred_nrm,pred_rgb = self.forward_3D(input_data,pts)
         loss,reco_loss, rgb_loss, nrm_loss = self.backward_3D(input_data,pred_sdf,pred_nrm,pred_rgb)
         self.log_dict['Loss_3D/reco_loss'] += reco_loss.item()

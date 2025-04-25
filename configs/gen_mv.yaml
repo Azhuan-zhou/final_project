@@ -1,7 +1,8 @@
 prompt_embeds_path: models/multiview_generator/data/fixed_prompt_embeds_7view
-root_dir: "data/THuman/THuman_dataset"
+root_dir: "data/new_cape"
 num_views: 7
 bg_color: "white"
+dataset: 'cape'
 img_wh: [768, 768]
 crop_size: 740
 margin_size: 50

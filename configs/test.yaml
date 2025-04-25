@@ -1,0 +1,39 @@
+#global
+seed: 2434
+device: 'cuda'
+save_root: test/
+exp_name: 1d_2d_3d
+dataset: 'cape'
+body_type: 'smpl'
+ckpt: 'ckpt/'
+#dataset
+data_root: 'data/cape'
+smpl_root: 'data/cape/smpl'
+img_size: 1024
+num_samples: 20480
+white_bg: True
+aug_jitter: False
+
+# test
+subdivide: True
+save_uv: False
+clean_mesh_flag: True
+mcube_res: 256
+
+#feature_extractor:
+use_trans: True
+
+#network:
+pos_dim: 8
+feat_dim: 16
+num_layers: 5
+hidden_dim: 256
+skip: [2,3,4]
+activation: 'lrelu'
+layer_type: 'none'
+#embedder:
+shape_freq: 0
+color_freq: 0
+
+#validation:
+grid_size: 512

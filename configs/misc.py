@@ -63,6 +63,7 @@ class mvConfig:
     num_views:  int
     bg_color: str
     img_wh:  list
+    dataset: str
     crop_size: int
     margin_size: int
     smpl_folder: str
@@ -153,6 +154,48 @@ class TrainConfig:
     wandb: bool
     wandb_id: Optional[str] 
     wandb_name: str
+
+
+class TestConfig:
+    #global
+    seed: int
+    device: str
+    save_root: str
+    exp_name: str
+    dataset: str
+    ckpt: str
+    
+    # test
+    subdivide: bool
+    save_uv: bool
+    clean_mesh_flag: bool
+    mcube_res: int
+    
+    #dataset
+    data_root: str
+    smpl_root: str
+    img_size: int
+    num_samples: int
+    white_bg: bool
+    aug_jitter: bool
+    
+    #feature_extractor:
+    use_trans: bool
+    
+    #network:
+    pos_dim: int
+    feat_dim: int
+    num_layers: int
+    hidden_dim: int
+    skip: list
+    activation: str
+    layer_type: str
+    #embedder:
+    shape_freq: int
+    color_freq: int
+    
+    #validation:
+    grid_size: int
 
 
 

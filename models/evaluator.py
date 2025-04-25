@@ -21,7 +21,7 @@ from .SMPL_query import SMPL_query
 
 class Evaluator(nn.Module):
 
-    def __init__(self, config, watertight, can_V, device,model=None):
+    def __init__(self, config, watertight, can_V, device,model):
 
         super().__init__()
 
@@ -45,26 +45,11 @@ class Evaluator(nn.Module):
 
         self.smpl_query = SMPL_query(watertight['smpl_F'], can_V)
 
-        if model is None:
-            self.nrm_predictor = define_G(3, 3, 64, "global", 4, 9, 1, 3, "instance")
-
-            self.geo_model = GeoModel(self.cfg, self.smpl_query)
-            self.tex_model = TexModel(self.cfg, self.smpl_query)
-
-            checkpoint = torch.load(self.cfg.resume, map_location=self.device)
-
-            self.nrm_predictor.load_state_dict(checkpoint['nrm_encoder'])
-            self.geo_model.image_encoder.load_state_dict(checkpoint['image_encoder'])
-            self.geo_model.sdf_decoder.load_state_dict(checkpoint['sdf_decoder'])
-
-            self.tex_model.image_encoder.load_state_dict(checkpoint['high_res_encoder'])
-            self.tex_model.rgb_decoder.load_state_dict(checkpoint['rgb_decoder'])
-
-            self.nrm_predictor.to(self.device)
-            self.geo_model.to(self.device)
-            self.tex_model.to(self.device)
-        else:
-            self.model
+        self.model = model
+        self.sdf = None
+        self.nrm = None
+        self.rgb = None
+        
     def _repair_mesh(self, mesh):
 
         # remove disconnect par of mesh
@@ -92,7 +77,7 @@ class Evaluator(nn.Module):
             )
         return inpaint_image
 
-    def test_reconstruction(self, data, save_path, step,epoch,subdivide=True, chunk_size=1e5, flip=False, save_uv=False):
+    def test_reconstruction(self, data, save_path, subdivide=True, chunk_size=1e5, flip=False, save_uv=False):
         
         fname = data['idx']
         log.info(f"Reconstructing mesh for {fname}...")
@@ -103,6 +88,7 @@ class Evaluator(nn.Module):
         voxels = []
         with torch.no_grad():
             for _p in _points:
+                data['pts'] = _p # [bs,N,3]
                 pred_sdf,pred_nrm,_ = self.model.forward_3D(data, _p,geo=True,tex=False)
                 voxels.append(pred_sdf)
 
@@ -150,6 +136,7 @@ class Evaluator(nn.Module):
             pred_rgb = []
             with torch.no_grad():
                 for _p in _points:
+                    data['pts'] = _p # [bs,N,3]
                     _,_,output = self.model.forward_3D(data, _p, geo=False, tex=True)
                     pred_rgb.append(output)
 
@@ -205,11 +192,18 @@ class Evaluator(nn.Module):
             h = self._repair_mesh(h)
             obj_path = os.path.join(save_path, '%s_reco.obj' % (fname))
             h.export(obj_path)
-
+        end = time.time()
+        log.info(f"Reconstruction finished in {end-start} seconds.")
+        
+        return obj_path
+    
+    def calc_loss(self, data,step,epoch):
+        
+        pts = data['xyz']
+        pred_sdf, pred_nrm, pred_rgb = self.model.forward_3D(data, pts, geo=True, tex=True)
         gts = data['d']
         rgb = data['rgb']
         nrm = data['nrm']
-        
         # Compute 3D losses
         reco_loss = torch.abs(pred_sdf - gts).mean()
         rgb_loss = torch.abs(pred_rgb - rgb).mean()
@@ -220,11 +214,5 @@ class Evaluator(nn.Module):
         log_text += ' | reco loss: {:>.3E}'.format(reco_loss.item())
         log_text += ' | rgb loss: {:>.3E}'.format(rgb_loss.item())
         log_text += ' | nrm loss: {:>.3E}'.format(nrm_loss.item())
-        
         log.info(log_text)
-        end = time.time()
-        log.info(f"Reconstruction finished in {end-start} seconds.")
-        
-        return obj_path
-
-
+       

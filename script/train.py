@@ -1,20 +1,18 @@
 
 import os, sys
-from models.renderer import Renderer
+from models.SiHR import ReconModel
 from dataset.THuman_dataset import THumanReconDataset
 import argparse
 from omegaconf import OmegaConf
-from configs.misc import load_config, mvConfig
+from configs.misc import load_config, TrainConfig
 from torch.optim.adamw import AdamW
 from datetime import datetime
 import logging as log
 import numpy as np
 import torch
 import random
-import shutil
-import tempfile
 import pickle
-import wandb
+
 from torch.utils.data import DataLoader
 from dataset.mesh.load_obj import load_obj
 from diffusers.optimization import get_scheduler
@@ -54,7 +52,7 @@ def main(config):
     can_V, _ = load_obj(CANONICAL_TEMPLATE)
     # ============================================
     # =================init=================
-    model = Renderer(config,watertight,can_V)
+    model = ReconModel(config,watertight,can_V)
     params = [{
         'params':model.parameters(),
         'lr': config.lr_decoder,
@@ -102,7 +100,7 @@ def main(config):
     for epoch in range(start_epoch, config.epochs):
         for data in loader:
             optimizer.zero_grad()
-            total_loss,reco_loss, rgb_loss, nrm_loss = model(data)
+            total_loss = model(data)
             total_loss.backward()
             optimizer.step()
             lr_scheduler.step()
@@ -123,7 +121,8 @@ def main(config):
                     break
                 with torch.no_grad():
                     evaluator.test_reconstruction(
-                               data, save_path,global_step,epoch, subdivide=config.subdivide)
+                               data, save_path,subdivide=config.subdivide)
+                    evaluator.calc_loss(data,global_step,epoch)
                     
             model.train()
             torch.cuda.empty_cache()
@@ -137,6 +136,6 @@ if __name__ == "__main__":
 
     # parse YAML config to OmegaConf
     cfg = load_config(args.config, cli_args=extras)
-    schema = OmegaConf.structured(mvConfig)
+    schema = OmegaConf.structured(TrainConfig)
     cfg = OmegaConf.merge(schema, cfg)
     main(cfg)

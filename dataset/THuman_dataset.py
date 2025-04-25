@@ -6,33 +6,34 @@ import math
 import PIL.Image as Image
 import numpy as np
 import os
-from models.smpl.smpl_numpy import SMPL
+from smplx import SMPLX
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
 import nvdiffrast
 import kaolin as kal
+import pickle
 import cv2
-
+WATERTIGHT_TEMPLATE = 'data/smplx_watertight.pkl'
 class THumanReconDataset(Dataset):
     def __init__(self, root, cfg,mode='train'):
         self.root = root
         self.mode = mode
-        self.smpl_root = cfg.smpl_root
+        self.smplx_root = cfg.smpl_root
         self.img_size = cfg.img_size
         self.num_samples = cfg.num_samples
         self.aug_jitter = cfg.aug_jitter
         self.aug_bg = not cfg.white_bg
-        self.subject_names = []
+        self.object_names = []
         with open(os.path.join(root,'{}.txt'.format(mode)),'r') as f:
             for i in f.readlines():
-                self.subject_names.append(i.strip())
-        self.num_subjects = len(self.subject_names)
+                self.object_names.append(i.strip())
+        self.num_objects = len(self.object_names)
         
-        sub_imgs = os.listdir(os.path.join(root, self.subject_names[0],'imgs'))
-        sub_params_pts = os.path.join(root, self.subject_names[0],'params','points.npy')
-        self.num_views = len(sub_imgs)
-        self.num_pts = self.load_npy(sub_params_pts).shape[0]
+        ob_imgs = os.listdir(os.path.join(root, self.object_names[0],'imgs'))
+        ob_params_pts = os.path.join(root, self.object_names[0],'params','points.npy')
+        self.num_views = len(ob_imgs)
+        self.num_pts = self.load_npy(ob_params_pts).shape[0]
         
 
         self.transform_rgba= transforms.Compose([
@@ -40,25 +41,8 @@ class THumanReconDataset(Dataset):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5,0.5,0.5,0.0], std=[0.5,0.5,0.5,1.0])
         ])
-        self.transform= transforms.Compose([
-            transforms.Resize((self.img_size, self.img_size), interpolation=transforms.InterpolationMode.BILINEAR),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
-        ])
         self.jitter = transforms.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.25)
         
-        
-        smpl_model = SMPL(sex='neutral', model_dir='data/body_models/smpl/SMPL_NEUTRAL.pkl')
-        self.big_pose_params = self.get_big_pose_params()
-        t_vertices, _ = smpl_model(self.big_pose_params['poses'], self.big_pose_params['shapes'].reshape(-1))
-        self.t_vertices = t_vertices.astype(np.float32)
-        min_xyz = np.min(self.t_vertices, axis=0)
-        max_xyz = np.max(self.t_vertices, axis=0)
-        min_xyz -= 0.05
-        max_xyz += 0.05
-        min_xyz[2] -= 0.1
-        max_xyz[2] += 0.1
-        self.t_world_bounds = np.stack([min_xyz, max_xyz], axis=0)
 
 
     def load_npy(self,file):
@@ -106,14 +90,14 @@ class THumanReconDataset(Dataset):
         d = data['d'][pts_id]
         return pts, rgb, nrm, d
     
-    def get_smpl(self, file):
-        """load smpl parameters."""
-        smpl_path = os.path.join(file, 'smpl.npy')
-        data = self.load_npy(smpl_path)
-        smpl = data['vertices']
+    def get_smplx(self, file):
+        """load smplx parameters."""
+        smplx_path = os.path.join(file, 'smpl.npy')
+        data = self.load_npy(smplx_path)
+        smplx = data['vertices']
         joint_3d = data['joint_3d']
         vis = data['vis']
-        return smpl, joint_3d, vis
+        return smplx, joint_3d, vis
     
     def get_camera(self, file,view_id):
         """load camera parameters."""
@@ -181,29 +165,17 @@ class THumanReconDataset(Dataset):
         return view_img,img_mask,side_rgbs, nrm_img,back_nrm_img,side_normals
     
     
-    def get_big_pose_params(self):
-
-        big_pose_params = {}
-        # big_pose_params = copy.deepcopy(params)
-        big_pose_params['R'] = np.eye(3).astype(np.float32)
-        big_pose_params['Th'] = np.zeros((1,3)).astype(np.float32)
-        big_pose_params['shapes'] = np.zeros((1,10)).astype(np.float32)
-        big_pose_params['poses'] = np.zeros((1,72)).astype(np.float32)
-        big_pose_params['poses'][0, 5] = 45/180*np.array(np.pi)
-        big_pose_params['poses'][0, 8] = -45/180*np.array(np.pi)
-        big_pose_params['poses'][0, 23] = -30/180*np.array(np.pi)
-        big_pose_params['poses'][0, 26] = 30/180*np.array(np.pi)
-        return big_pose_params
     
-    def get_data(self, subject_id, pts_id, view_id):
+    
+    def get_data(self, object_id, pts_id, view_id):
         """Retrieve point sample."""
         
-        object_name = "%04d" % subject_id
+        object_name = "%04d" % object_id
         back_view_id = (view_id + self.num_views // 2 ) % self.num_views
         object_dir = os.path.join(self.root, object_name)
         params_dir = os.path.join(self.root, object_name, 'params')
         pts, rgb, nrm, d = self.get_points(params_dir,pts_id)
-        smpl_v, joint_3d, vis = self.get_smpl(params_dir)
+        smplx_v, joint_3d, vis = self.get_smplx(params_dir)
         eva, azh, rad, pos = self.get_camera(params_dir,view_id)
         front_vis = vis[view_id].astype(bool)
         back_vis = vis[back_view_id].astype(bool)
@@ -217,7 +189,7 @@ class THumanReconDataset(Dataset):
         # Transform points
         pts = pts @ R.t()
         nrm = nrm @ R.t()
-        smpl_v = smpl_v @ R.t() 
+        smplx_v = smplx_v @ R.t() 
         bg_color = torch.ones((3, 1))
         
         if self.aug_bg:
@@ -228,13 +200,7 @@ class THumanReconDataset(Dataset):
             if torch.rand(1) > 0.5:
                 front_image = self.jitter(front_image)
                 
-                
-        smpl_path = os.path.join(object_dir, '{}_smpl.pkl'.format(object_name))
-        smpl_data = np.load(smpl_path, allow_pickle=True)
-        obs_param = {
-            'pose': smpl_data['betas'],
-            'shape': smpl_data['body_pose']
-        }
+       
                 
                 
         return {
@@ -242,8 +208,8 @@ class THumanReconDataset(Dataset):
             'd': d,
             'nrm': nrm,
             'rgb': rgb,
-            'idx': subject_id,
-            'smpl_v': smpl_v,
+            'idx': object_id,
+            'smpl_v': smplx_v,
             'vis_class': vis_class.unsqueeze(-1),
             
             'front_image': front_image,
@@ -252,15 +218,6 @@ class THumanReconDataset(Dataset):
             'front_nrm_img': nrm_img,
             'back_nrm_img': back_nrm_img,
             'side_normals': side_normals,
-            
-            # canonical space
-            't_params': self.big_pose_params,
-            't_vertices': self.t_vertices,
-            't_world_bounds': self.t_world_bounds,
-            
-            
-            #obs
-            'obs_params': obs_param
             
         }
                 
@@ -286,5 +243,44 @@ class THumanReconDataset(Dataset):
     def __len__(self):
         """Return length of dataset (number of _samples_)."""
 
-        return self.num_subjects
+        return self.num_objects
+    
+    
+def get_visibility(xy, z, faces):
+    """get the visibility of vertices
+
+    Args:
+        xy (torch.tensor): [N,2]
+        z (torch.tensor): [N,1]
+        faces (torch.tensor): [N,3]
+        size (int): resolution of rendered image
+    """
+
+    xyz = torch.cat((xy, -z), dim=1)
+    xyz = (xyz + 1.0) / 2.0
+    faces = faces.long()
+
+    rasterizer = Pytorch3dRasterizer(image_size=2**12)
+    meshes_screen = Meshes(verts=xyz[None, ...], faces=faces[None, ...])
+    raster_settings = rasterizer.raster_settings
+
+    pix_to_face, zbuf, bary_coords, dists = rasterize_meshes(
+        meshes_screen,
+        image_size=raster_settings.image_size,
+        blur_radius=raster_settings.blur_radius,
+        faces_per_pixel=raster_settings.faces_per_pixel,
+        bin_size=raster_settings.bin_size,
+        max_faces_per_bin=raster_settings.max_faces_per_bin,
+        perspective_correct=raster_settings.perspective_correct,
+        cull_backfaces=raster_settings.cull_backfaces,
+    )
+
+    vis_vertices_id = torch.unique(faces[torch.unique(pix_to_face), :])
+    vis_mask = torch.zeros(size=(z.shape[0], 1))
+    vis_mask[vis_vertices_id] = 1.0
+
+    # print("------------------------\n")
+    # print(f"keep points : {vis_mask.sum()/len(vis_mask)}")
+
+    return vis_mask
 

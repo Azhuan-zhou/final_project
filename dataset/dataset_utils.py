@@ -24,7 +24,7 @@ UV_TEMPLATE = 'data/body_models/smplx_uv.obj'
 WATERTIGHT_TEMPLATE = 'data/body_models/smplx_watertight.pkl'
 
 ###################################################################
-
+    
 def rasterize(camera, V, F, args):
 
     vertices_camera = camera.extrinsics.transform(V)
@@ -125,40 +125,6 @@ def init_camera(args):
     camera_dict['elevation'] = elevation.cpu().numpy()
     camera_dict['azimuth'] = azimuth.cpu().numpy()
     camera_dict['radius'] = radius.cpu().numpy()
-    
-    nviews = camera.extrinsics.R.shape[0]
-    R_all = camera.extrinsics.R.detach().cpu().numpy()           # [N, 3, 3]
-    cam_pos_all = camera.extrinsics.cam_pos().detach().cpu().numpy()  # [N, 3]
-
-    T_all = []
-    for R, C in zip(R_all, cam_pos_all):
-        T = -R @ C.reshape(3, 1)  # shape [3, 1]
-        T_all.append(T)
-    T_all = np.stack(T_all, axis=0)  # [N, 3, 1]
-    
-    K_all = []
-
-    if args.camera_mode == 'persp':
-        fx = camera.intrinsics.fx.detach().cpu().numpy()
-        fy = camera.intrinsics.fy.detach().cpu().numpy()
-        cx = camera.intrinsics.cx.detach().cpu().numpy()
-        cy = camera.intrinsics.cy.detach().cpu().numpy()
-
-        for i in range(len(fx)):
-            K = np.array([
-                [fx[i], 0,     cx[i]],
-                [0,     fy[i], cy[i]],
-                [0,     0,     1]
-            ])
-            K_all.append(K)
-    else:
-        for _ in range(len(R_all)):
-            K_all.append(np.eye(3))
-    K_all = np.stack(K_all, axis=0)
-    
-    camera_dict['R'] = R_all         
-    camera_dict['T'] = T_all         
-    camera_dict['K'] = K_all
 
 
     return camera, camera_dict
@@ -214,11 +180,15 @@ def sample_points(obj_file, args):
 
 
 
+def render_images(camera, obj_file, args):
 
-def render_images(camera, obj_file, smpl_file, args):
-    # Render RGBA from the mesh
+    # Render RGBA and normal map from the mesh
+
     out = load_obj(obj_file, load_materials=True)
     mesh_V, mesh_F, texv, texf, mats = out
+
+    FN = per_face_normals(mesh_V, mesh_F).to(device)
+
     rast1, _ = rasterize(camera, mesh_V.to(device), mesh_F.to(device), args)
 
     face_idx = (rast1[..., -1].long() - 1).contiguous()
@@ -226,11 +196,14 @@ def render_images(camera, obj_file, smpl_file, args):
     uv_map = nvdiffrast.torch.interpolate(
        texv.to(device), rast1, texf[...,:3].int().to(device)
     )[0] % 1.
+
+    nrm_map = FN[face_idx.view(-1)].view(args.nviews, args.size, args.size, 3)
+
     TM = torch.zeros((args.nviews, args.size, args.size, 1), dtype=torch.long, device=device)
     rgb = sample_tex(uv_map.view(-1, 2), TM.view(-1), mats).view(args.nviews, args.size, args.size, 3)
     mask = (face_idx != -1)
 
-    return rgb.data.cpu(), mask.data.cpu()
+    return rgb.data.cpu(), nrm_map.data.cpu(), mask.data.cpu()
 
 
 def generate_data(local_path, args):
@@ -293,17 +266,25 @@ def generate_data(local_path, args):
 
     # Render the images from the mesh and SMPL-X
     #pdb.set_trace()
-    rgb, mask = render_images(cameras, obj_file, smpl_file, args)
+    rgb,nrm, mask = render_images(cameras, obj_file, smpl_file, args)
     
     
     for i in range(args.nviews):
+        os.makedirs(os.path.join(img_save_dir, f'view{i:02d}'), exist_ok=True)
         # Save RGB image as binary png file
         img = torch.zeros((args.size, args.size, 4))
         img[...,:3] = rgb[i]
         img[...,3] = mask[i]
         rgba = Image.fromarray((255 * img).numpy().astype(np.uint8), mode='RGBA')
-        os.makedirs(os.path.join(img_save_dir, f'view{i:02d}'), exist_ok=True)
         rgba.save(os.path.join(img_save_dir, f'view{i:02d}','rgb.png'))
+        
+        # Save normal map as binary png file
+        img = torch.zeros((args.size, args.size, 4))
+        img[...,:3] = (nrm[i] * 0.5 + 0.5)
+        img[...,3] = mask[i]
+        nrm_img = Image.fromarray((255 * img).numpy().astype(np.uint8), mode='RGBA')
+        nrm_img.save(os.path.join(img_save_dir, f'view{i:02d}','nrm.png'))
+            
        
 
        

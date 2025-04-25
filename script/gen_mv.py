@@ -4,7 +4,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.multiview_generator.mvdiffusion_unclip import StableUnCLIPImg2ImgPipeline
 import torch
 from torch.utils.data import DataLoader
-from dataset.mv_dataset import SingleImageDataset
+
 from collections import defaultdict
 from tqdm.auto import tqdm
 from einops import rearrange
@@ -20,17 +20,30 @@ def load_pshuman_pipeline(pretrained_model="stabilityai/stable-diffusion-2-1-unc
     return pipeline
 
 
-def prepare_multiview_data(root_dir,batch_size=8,num_workers=1,num_views=5,img_wh=[768, 768],bg_color='white',margin_size=50,single_image=None,filepaths=None, prompt_embeds_path=' models/multiview_generator/data/fixed_prompt_embeds_7view',crop_size=740,smpl_folder='smpl_image_pymaf'):
-    dataset = SingleImageDataset(root_dir=root_dir,
-                                 num_views=num_views,
-                                 img_wh=img_wh,
-                                 bg_color=bg_color,
-                                 margin_size=margin_size,
-                                 single_image=single_image,
-                                 prompt_embeds_path=prompt_embeds_path,
-                                 crop_size=crop_size,
+def prepare_multiview_data(cfg):
+    if cfg.dataset == 'pshuman':
+        from dataset.mv_dataset import SingleImageDataset
+        dataset = SingleImageDataset(root_dir=cfg.root_dir,
+                                    num_views=cfg.num_views,
+                                 img_wh=cfg.img_wh,
+                                 bg_color=cfg.bg_color,
+                                 margin_size=cfg.margin_size,
+                                 prompt_embeds_path=cfg.prompt_embeds_path,
+                                 crop_size=cfg.crop_size,
                                 )
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False,num_workers=num_workers)
+    elif cfg.dataset == 'cape':
+        from dataset.CAPE_dataset import SingleImageDataset
+        obj_txt = os.path.join(cfg.root_dir, 'test150.txt')
+        dataset = SingleImageDataset(root_dir=cfg.root_dir,
+                                    num_views=cfg.num_views,
+                                    img_wh=cfg.img_wh,
+                                    bg_color=cfg.bg_color,
+                                    objects_txt=obj_txt,
+                                    margin_size=cfg.margin_size,
+                                    prompt_embeds_path=cfg.prompt_embeds_path,
+                                    crop_size=cfg.crop_size,
+                                    )
+    dataloader = DataLoader(dataset, batch_size=cfg.batch_size, shuffle=False,num_workers=cfg.num_workers)
     return dataloader
 
 
@@ -43,15 +56,7 @@ def run_pshuman_pipeline(pipeline,cfg):
     else:
         generator = torch.Generator(device=pipeline.unet.device).manual_seed(cfg.seed)
         
-    dataloader = prepare_multiview_data(cfg.root_dir,
-                                       batch_size=cfg.batch_size,
-                                       num_views=cfg.num_views,
-                                       img_wh=cfg.img_wh,
-                                       bg_color=cfg.bg_color,
-                                       margin_size=cfg.margin_size,
-                                       prompt_embeds_path=cfg.prompt_embeds_path,
-                                       crop_size=cfg.crop_size,
-                                      )
+    dataloader = prepare_multiview_data(cfg)
     
     images_cond = []
     for case_id, batch in tqdm(enumerate(dataloader), desc="Processing", total=len(dataloader)):

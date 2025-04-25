@@ -3,10 +3,8 @@ seed: 2434
 save_root: logs/THuman
 exp_name: 1d_2d_3d
 device: cuda:0
+body_type: 'smplx'
 #feature_extractor:
-use_global_feature: True
-use_point_level_feature: True
-use_pixel_align_feature: True
 use_trans: True
 
 #dataset
@@ -14,7 +12,7 @@ data_root: 'data/THuman/THuman_dataset'
 smpl_root: 'data/THuman/THuman_smpl'
 img_size: 1024
 num_samples: 20480
-white_bbg: False
+white_bg: False
 aug_jitter: False
 
 
@@ -63,7 +61,7 @@ use_mask: False
 use_pred_nrm: False
 
 #validation:
-valid: False
+valid: True
 valid_folder: '../data/examples'
 valid_every: 50
 subdivide: True
