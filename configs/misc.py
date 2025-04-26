@@ -98,6 +98,7 @@ class TrainConfig:
     num_samples: int
     white_bg: bool
     aug_jitter: bool
+    views: int
 
     #optimizer
     lr_decoder: float

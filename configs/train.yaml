@@ -4,7 +4,7 @@ save_root: logs/THuman
 exp_name: debug
 device: cuda:0
 dataset: 'THuman'
-distribute: True
+distribute: False
 #feature_extractor:
 use_trans: True
 
@@ -14,6 +14,7 @@ img_size: 512
 num_samples: 20480
 white_bg: False
 aug_jitter: False
+views: 2
 
 
 #optimizer
@@ -32,8 +33,8 @@ max_grad_norm: 1.0
 
 #train
 epochs: 1000
-batch_size: 16
-workers: 12
+batch_size: 8
+workers: 8
 save_every: 50
 log_every: 31
 log_level: 20
