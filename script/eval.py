@@ -1,6 +1,7 @@
 import torch
 import os.path as osp
-import os
+import os, sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import numpy as np
 from script.utils import clean_mesh,reconstrcut, VF2Mesh,calculate_chamfer_p2s,calculate_normal_consist, accumulate
 from models.Render import Render
@@ -16,7 +17,7 @@ from dataset.CAPE_dataset import CapeReconDataset
 from torch.utils.data import DataLoader
 torch.backends.cudnn.benchmark = True
 CANONICAL_TEMPLATE = 'data/body_models/smpl_data/smplx_canonical.obj'
-WATERTIGHT_TEMPLATE = 'data/body_models/smpl_datasmplx_watertight.pkl'
+WATERTIGHT_TEMPLATE = 'data/body_models/smpl_data/smplx_watertight.pkl'
 SMPL_NATURAL = 'data/body_models/smpl/smplx_natural.pkl'
 
 
@@ -128,6 +129,7 @@ def main(config):
         
     
     model = ReconModel(config,smpl_F,can_V)
+    model = model.to(device)
     checkpoint = torch.load(config.ckpt, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     

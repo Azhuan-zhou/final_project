@@ -1,7 +1,7 @@
 #global
 seed: 2434
 save_root: logs/THuman
-exp_name: debug
+exp_name: Train
 device: cuda:0
 dataset: 'THuman'
 distribute: False

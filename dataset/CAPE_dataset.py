@@ -335,7 +335,7 @@ class CapeReconDataset(Dataset):
         smpl_obj_path = os.path.join(file, 'smpl.obj')
         smpl_obj =trimesh.load(smpl_obj_path, device=self.device)
         smpl_v = smpl_obj.vertices
-        return smpl_v=
+        return smpl_v
     
     def get_side_view_images(self,file,bg_color):
         """Load side view image."""

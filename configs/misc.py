@@ -158,7 +158,7 @@ class TrainConfig:
     wandb_id: Optional[str] 
     wandb_name: str
 
-
+@dataclass
 class TestConfig:
     #global
     seed: int
@@ -176,7 +176,6 @@ class TestConfig:
     
     #dataset
     data_root: str
-    smpl_root: str
     img_size: int
     num_samples: int
     white_bg: bool

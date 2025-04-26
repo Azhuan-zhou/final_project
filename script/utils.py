@@ -15,8 +15,8 @@ import numpy as np
 from PIL import Image
 from termcolor import colored
 ####################################################
-CANONICAL_TEMPLATE = 'data/smplx_canonical.obj'
-WATERTIGHT_TEMPLATE = 'data/smplx_watertight.pkl'
+CANONICAL_TEMPLATE = 'data/body_models/smpl_data/smplx_canonical.obj'
+WATERTIGHT_TEMPLATE = 'data/body_models/smpl_data/smplx_watertight.pkl'
 ####################################################
 with open(WATERTIGHT_TEMPLATE, 'rb') as f:
         watertight = pickle.load(f)

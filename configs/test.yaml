@@ -1,15 +1,13 @@
 #global
 seed: 2434
-device: 'cuda'
+device: 'cuda:3'
 save_root: test/
-exp_name: 1d_2d_3d
-dataset: 'cape'
-body_type: 'smpl'
-ckpt: '/home/yqw/home/zsh/final_project/logs/THuman/debug/20250426-214356/model-0000.pth
+exp_name: eval
+dataset: 'THuman'
+ckpt: '/home/yqw/home/zsh/final_project/logs/THuman/debug/20250426-214356/model-0000.pth'
 #dataset
-data_root: 'data/cape'
-smpl_root: 'data/cape/smpl'
-img_size: 1024
+data_root: '/home/yqw/home/zsh/final_project/data/THuman/THuman_dataset'
+img_size: 512
 num_samples: 20480
 white_bg: True
 aug_jitter: False
@@ -25,7 +23,7 @@ use_trans: True
 
 #network:
 pos_dim: 8
-feat_dim: 16
+feat_dim: 64
 num_layers: 5
 hidden_dim: 256
 skip: [2,3,4]
