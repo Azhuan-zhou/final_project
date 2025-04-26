@@ -1,0 +1,1 @@
+ python script/train.py --config configs/train.yaml > train.log 2>&1

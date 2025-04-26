@@ -18,10 +18,10 @@ from .networks.normal_predictor import define_G
 from .geo_model import GeoModel
 from .tex_model import TexModel
 from .SMPL_query import SMPL_query
-
+from tqdm import tqdm
 class Evaluator(nn.Module):
 
-    def __init__(self, config, watertight, can_V, device,model):
+    def __init__(self, config, smpl_F, can_V, device,model):
 
         super().__init__()
 
@@ -43,7 +43,7 @@ class Evaluator(nn.Module):
         self.coord = torch.stack(torch.meshgrid(window_x, window_y, window_z, indexing='ij')).permute(
                                 1, 2, 3, 0).reshape(1, -1, 3).contiguous()
 
-        self.smpl_query = SMPL_query(watertight['smpl_F'], can_V)
+        self.smpl_query = SMPL_query(smpl_F, can_V)
 
         self.model = model
         self.sdf = None
@@ -77,18 +77,21 @@ class Evaluator(nn.Module):
             )
         return inpaint_image
 
-    def test_reconstruction(self, data, save_path, subdivide=True, chunk_size=1e5, flip=False, save_uv=False):
+    def test_reconstruction(self, data, save_path, subdivide=True, chunk_size=5e5, flip=False, save_uv=False,epoch=None):
+        # batch_size must be 1
+        assert len(data['idx']) == 1, "Batch size must be 1 for reconstruction"
         
-        fname = data['idx']
+        fname = data['idx'][0]
         log.info(f"Reconstructing mesh for {fname}...")
 
         start = time.time()
         # first estimate the sdf values
         _points = torch.split(self.coord, int(chunk_size), dim=1)
         voxels = []
+
         with torch.no_grad():
-            for _p in _points:
-                data['pts'] = _p # [bs,N,3]
+            for _p in tqdm(_points,desc='Marching cube', unit='chunk'):
+                _p = _p.to(self.device)
                 pred_sdf,pred_nrm,_ = self.model.forward_3D(data, _p,geo=True,tex=False)
                 voxels.append(pred_sdf)
 
@@ -135,8 +138,8 @@ class Evaluator(nn.Module):
 
             pred_rgb = []
             with torch.no_grad():
-                for _p in _points:
-                    data['pts'] = _p # [bs,N,3]
+                for _p in tqdm(_points,desc='Texture prediction', unit='chunk'):
+                    _p = _p.to(self.device)
                     _,_,output = self.model.forward_3D(data, _p, geo=False, tex=True)
                     pred_rgb.append(output)
 
@@ -171,7 +174,7 @@ class Evaluator(nn.Module):
             _points = torch.split(vertices, int(chunk_size), dim=1)
             pred_rgb = []
             with torch.no_grad():
-                for _p in _points:
+                for _p in tqdm(_points,desc='Texture prediction', unit='chunk'):
                     _,_,output = self.model.forward_3D(data, _p, geo=False, tex=True)
                     pred_rgb.append(output)
 
@@ -190,7 +193,10 @@ class Evaluator(nn.Module):
 
 
             h = self._repair_mesh(h)
-            obj_path = os.path.join(save_path, '%s_reco.obj' % (fname))
+            if epoch is not None:
+                obj_path = os.path.join(save_path, '%s_reco_%04d.obj' % (fname, epoch))
+            else:
+                obj_path = os.path.join(save_path, '%s_reco.obj' % (fname))
             h.export(obj_path)
         end = time.time()
         log.info(f"Reconstruction finished in {end-start} seconds.")
@@ -199,7 +205,7 @@ class Evaluator(nn.Module):
     
     def calc_loss(self, data,step,epoch):
         
-        pts = data['xyz']
+        pts = data['pts']
         pred_sdf, pred_nrm, pred_rgb = self.model.forward_3D(data, pts, geo=True, tex=True)
         gts = data['d']
         rgb = data['rgb']

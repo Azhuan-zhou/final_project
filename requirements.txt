@@ -12,6 +12,7 @@ facenet-pytorch==2.5.2
 PyMCubes
 chumpy
 jpeg4py
+spconv
 flatten_dict==0.4.2
 rtree==0.9.7
 vedo==2020.4.2

@@ -84,6 +84,8 @@ class TrainConfig:
     save_root: str
     exp_name: str
     device: str
+    dataset: str
+    distribute: bool
     #feature_extractor:
     use_global_feature: bool
     use_point_level_feature: bool
@@ -94,7 +96,7 @@ class TrainConfig:
     data_root: str
     img_size: int
     num_samples: int
-    white_bbg: bool
+    white_bg: bool
     aug_jitter: bool
 
     #optimizer

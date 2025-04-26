@@ -126,8 +126,7 @@ class PointFeat:
         # feats [B,N,C]
 
         residues, pts_ind, _ = point_to_mesh_distance(points, self.triangles)
-        closest_triangles = torch.gather(
-            self.triangles, 1,
+        closest_triangles = torch.gather(self.triangles, 1,
             pts_ind[:, :, None, None].expand(-1, -1, 3, 3)).view(-1, 3, 3)
         bary_weights = barycentric_coordinates_of_projection(
             points.view(-1, 3), closest_triangles)
@@ -235,7 +234,7 @@ class SMPLX():
 
     def __init__(self):
 
-        self.current_dir = "./data/smpl_related"  # new smplx file in ECON folder
+        self.current_dir = "./data/body_models"  # new smplx file in ECON folder
 
         self.smpl_verts_path = osp.join(self.current_dir,
                                         "smpl_data/smpl_verts.npy")
@@ -277,7 +276,7 @@ class SMPLX():
         )
         self.smplx_mano_vid_path = osp.join(self.current_dir, "smpl_data/MANO_SMPLX_vertex_ids.pkl")
         self.smpl_vert_seg_path = osp.join(
-            osp.dirname(__file__), "../../lib/common/smpl_vert_segmentation.json"
+            self.current_dir, "smpl_data/smpl_vert_segmentation.json"
         )
         self.front_flame_path = osp.join(self.current_dir, "smpl_data/FLAME_face_mask_ids.npy")
         self.smplx_vertex_lmkid_path = osp.join(

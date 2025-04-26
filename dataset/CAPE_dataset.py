@@ -1,7 +1,7 @@
 import io 
 import math
 import PIL.Image as Image
-
+import PIL
 from typing import  Tuple, Optional
 import numpy as np
 import os
@@ -32,7 +32,7 @@ class SingleImageDataset(Dataset):
         bg_color: str,
         objects_txt:str,
         margin_size: int = 0,
-        single_image: Optional[Image] = None,
+        single_image: Optional[PIL.Image.Image] = None,
         prompt_embeds_path: Optional[str] = None,
         crop_size: Optional[int] = 720,
         ) -> None:
@@ -59,8 +59,8 @@ class SingleImageDataset(Dataset):
                     if i:
                         object_names.append(i.strip())
             for object_name in object_names:
-                img_path = os.path.join(self.root_dir, object_name,'view','front.png')
-                mask_path = os.path.join(self.root_dir, object_name,'view','mask.png')
+                img_path = os.path.join(self.root_dir, 'view',object_name,'front.png')
+                mask_path = os.path.join(self.root_dir, 'view',object_name,'mask.png')
                 if os.path.exists(img_path) and os.path.exists(mask_path):
                     file_list.append(img_path)
                     mask_list.append(mask_path)
@@ -228,7 +228,8 @@ class SingleImageDataset(Dataset):
         bg_color = self.get_bg_color()
         file_path = self.file_list[index]
         img = Image.open(file_path).convert('RGB')
-        boxes, probs = detect_face(img)
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        boxes, probs = detect_face(img.to(device))
         max_idx = np.argmax(probs)
         if boxes is not None:
             bbox = boxes[max_idx] 
@@ -271,11 +272,9 @@ class SingleImageDataset(Dataset):
 class CapeReconDataset(Dataset):
     def __init__(self,root,cfg, smpl_F,device):
         self.root = root
-        self.device = device
         self.img_size = cfg.img_size
         
         self.image_folder = os.path.join(self.root, 'view')
-        self.obj_folder = os.path.join(self.root, 'scan')
         self.smpl_folder = os.path.join(self.root, 'smpl')
 
         self.object_names = []
@@ -288,11 +287,11 @@ class CapeReconDataset(Dataset):
         
         self.image_list = [os.path.join(self.image_folder,x) for x in self.object_names]
         self.side_view_folder = [os.path.join(self.image_folder,x,'rgb') for x in self.object_names]
-        self.gt_obj_list = [os.path.join(self.obj_folder, x+'.obj') for x in self.object_names]
+       
         self.smpl_list = [os.path.join(self.smpl_folder, x) for x in self.object_names]
         
         
-        assert len(self.image_list  ) == len(self.gt_obj_list) == len( self.side_view_folder) == len(self.smpl_list)
+        assert len(self.image_list  )  == len( self.side_view_folder) == len(self.smpl_list)
         
         
 
@@ -331,19 +330,12 @@ class CapeReconDataset(Dataset):
         _mask = (mask<0.5).expand_as(image)
         image[_mask] = bg[_mask]
         return image
-    
 
-    def load_npy(self,file):
-        data = np.load(file, allow_pickle=True).item()
-        return data
-    
     def get_smpl(self,file):
         smpl_obj_path = os.path.join(file, 'smpl.obj')
-        smpl_param_path = os.path.join(file, 'smpl_param.pkl')
         smpl_obj =trimesh.load(smpl_obj_path, device=self.device)
         smpl_v = smpl_obj.vertices
-        smpl_param = np.load(smpl_param_path, allow_pickle=True)
-        return smpl_v,smpl_param
+        return smpl_v=
     
     def get_side_view_images(self,file,bg_color):
         """Load side view image."""
@@ -402,7 +394,7 @@ class CapeReconDataset(Dataset):
     def get_data(self, object_id):
         """Retrieve point sample."""
         object_name = self.object_names[object_id]
-        bg_color = torch.ones((3, 1))
+        bg_color = torch.ones((3, 1)) # white
         calib = self.load_calib(os.path.join(self.image_list[object_id], 'calib.txt'))
         
         front_image, front_image_mask,side_images, nrm_img,back_nrm_img, side_normals = self.get_images(object_id,bg_color)
@@ -418,7 +410,6 @@ class CapeReconDataset(Dataset):
                 
                 
         return {
-            'idx': object_id,
             'smpl_v': smpl_v,
             'vis_class': vis_class.unsqueeze(-1),
             'idx': object_name,
@@ -515,3 +506,6 @@ def render_visiblity(smplx_V, F,extrinsic,K,img_size,device,glctx):
     vis = torch.stack(vv, dim=0)
 
     return vis
+
+if __name__ == "__main__":
+    dataset = CapeReconDataset(root='/home/yqw/home/zsh/final_project/data/cape',cfg=None, smpl_F=None,device='cuda')

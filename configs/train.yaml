@@ -1,16 +1,16 @@
 #global
 seed: 2434
 save_root: logs/THuman
-exp_name: 1d_2d_3d
+exp_name: debug
 device: cuda:0
-body_type: 'smplx'
+dataset: 'THuman'
+distribute: True
 #feature_extractor:
 use_trans: True
 
 #dataset
 data_root: 'data/THuman/THuman_dataset'
-smpl_root: 'data/THuman/THuman_smpl'
-img_size: 1024
+img_size: 512
 num_samples: 20480
 white_bg: False
 aug_jitter: False
@@ -31,17 +31,17 @@ lr_power: 1.0
 max_grad_norm: 1.0
 
 #train
-epochs: 5000
-batch_size: 8
-workers: 8
+epochs: 1000
+batch_size: 16
+workers: 12
 save_every: 50
-log_every: 500
+log_every: 31
 log_level: 20
-resume: None
+resume: null
 
 #network:
 pos_dim: 8
-feat_dim: 16
+feat_dim: 64
 num_layers: 5
 hidden_dim: 256
 skip: [2,3,4]

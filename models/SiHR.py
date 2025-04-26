@@ -11,51 +11,47 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from pytorch3d.ops.knn import knn_points
 import logging as log
-from models.base_modules import PositionalEncoding, Transformer
 from models.geo_model import GeoModel
 from models.tex_model import TexModel
-from SMPL_query import SMPL_query
+from models.SMPL_query import SMPL_query
 from models.Feature import FeatureExtractor
-
+from models.PointFeat import PointFeat, SMPLX
 
 
 class ReconModel(torch.nn.Module):
-    def __init__(self, cfg,watertight, can_V):
+    def __init__(self, cfg,smpl_F, can_V):
         super().__init__()
         self.cfg = cfg
         self.log_dict = {}
         self._init_log_dict()
         #feature extractor
-        self.feature_extractor = FeatureExtractor()
+        self.feature_extractor = FeatureExtractor(cfg)
         self.use_trans = cfg.use_trans
-        self.conv1d_reprojection = nn.Conv1d(128*2, 32, 1)
-        self.transformer = Transformer(32)
-
-        self.pos_enc = PositionalEncoding(num_freqs=6)
-        self.view_enc = PositionalEncoding(num_freqs=4)
-     
-        
-        
         # decoder
-        self.smpl_query = SMPL_query(watertight['smpl_F'], can_V)
-        self.geo_model = GeoModel(self.cfg, self.smpl_query)
-        self.tex_model = TexModel(self.cfg, self.smpl_query)
+        smpl_query = SMPL_query(smpl_F, can_V)
+        if cfg.dataset == 'THuman':
+            smpl_F_point_feat = torch.as_tensor(SMPLX().smplx_faces).long()
+        elif cfg.body_type == 'cape':
+            smpl_F_point_feat  = torch.as_tensor(SMPLX().smpl_faces).long()
+        else:
+            raise ValueError("Invalid body type. Choose 'smplx' or 'smpl'.")
+        
+        self.geo_model = GeoModel(self.cfg, smpl_query, smpl_F_point_feat)
+        self.tex_model = TexModel(self.cfg, smpl_query, smpl_F_point_feat)
 
     
 
     def forward_3D(self,input_data,pts,geo=True,tex=True):
-        feats = []
         smpl_v = input_data['smpl_v']
         vis_class = input_data['vis_class']
-        feats = self.FeatureExtractor.extract_features(input_data,pts,smpl_v)
+        color_feats_map, nrm_feats_map = self.feature_extractor.extract_map(input_data,smpl_v)
         if geo:
-            pred_sdf, pred_nrm = self.geo_model(feats,pts,smpl_v,vis_class)
+            pred_sdf, pred_nrm = self.geo_model(color_feats_map, nrm_feats_map,pts,smpl_v,vis_class)
         else: 
             pred_sdf, pred_nrm = None, None
         if tex:
-            pred_rgb = self.tex_model(feats,pts,smpl_v,vis_class)
+            pred_rgb = self.tex_model(color_feats_map, nrm_feats_map,pts,smpl_v,vis_class)
         else:
             pred_rgb = None
         return pred_sdf,pred_nrm,pred_rgb
@@ -74,6 +70,8 @@ class ReconModel(torch.nn.Module):
         nrm_loss = torch.abs(1 - F.cosine_similarity(pred_nrm, nrm, dim=-1)).mean()
 
         loss_3D = reco_loss * self.cfg.lambda_sdf + rgb_loss * self.cfg.lambda_rgb + nrm_loss * self.cfg.lambda_nrm
+        if loss_3D.dim() == 0:
+            loss_3D = loss_3D.unsqueeze(0)
         return loss_3D,reco_loss, rgb_loss, nrm_loss
     
     

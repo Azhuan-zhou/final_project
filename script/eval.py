@@ -15,8 +15,8 @@ from dataset.THuman_dataset import THumanReconDataset
 from dataset.CAPE_dataset import CapeReconDataset
 from torch.utils.data import DataLoader
 torch.backends.cudnn.benchmark = True
-CANONICAL_TEMPLATE = 'data/smplx_canonical.obj'
-WATERTIGHT_TEMPLATE = 'data/smplx_watertight.pkl'
+CANONICAL_TEMPLATE = 'data/body_models/smpl_data/smplx_canonical.obj'
+WATERTIGHT_TEMPLATE = 'data/body_models/smpl_datasmplx_watertight.pkl'
 SMPL_NATURAL = 'data/body_models/smpl/smplx_natural.pkl'
 
 

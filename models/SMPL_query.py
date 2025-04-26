@@ -11,8 +11,8 @@ class SMPL_query(nn.Module):
 
     def __init__(self, smpl_F, can_V):
         super().__init__()
-        self.smpl_F = smpl_F.cuda() #[num_faces, 3]
-        self.uv = can_V.unsqueeze(0).cuda() #[1, num_vertices, 3]
+        self.smpl_F = smpl_F #[num_faces, 3]
+        self.uv = can_V.unsqueeze(0) #[1, num_vertices, 3]
 
     def interpolate(self, coords, smpl_V):
 
@@ -24,6 +24,9 @@ class SMPL_query(nn.Module):
             (torch.FloatTensor): interpolated features of shape [batch, num_samples, feature_dim]
         """
         b_size = coords.shape[0]
+        device = smpl_V.device
+        self.smpl_F = self.smpl_F.to(device)
+        self.uv = self.uv.to(device)
         sdf, hitpt, fid, weights = batched_closest_point_fast(smpl_V, self.smpl_F,
                                                               coords) # [B, Ns, 1], [B, Ns, 3], [B, Ns, 1], [B, Ns, 3]
         
@@ -51,6 +54,9 @@ class SMPL_query(nn.Module):
         Returns:
             (torch.FloatTensor): interpolated features of shape [batch, num_samples, feature_dim]
         """
+        device = smpl_V.device
+        self.smpl_F = self.smpl_F.to(device)
+        self.uv = self.uv.to(device)
         b_size = coords.shape[0]
         sdf, hitpt, fid, weights = batched_closest_point_fast(smpl_V, self.smpl_F,
                                                               coords) # [B, Ns, 1], [B, Ns, 3], [B, Ns, 1], [B, Ns, 3]

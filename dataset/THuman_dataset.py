@@ -6,40 +6,43 @@ import math
 import PIL.Image as Image
 import numpy as np
 import os
-from smplx import SMPLX
 import torch
 from torch.utils.data import Dataset
 from torchvision import transforms
-import nvdiffrast
-import kaolin as kal
-import pickle
-import cv2
-WATERTIGHT_TEMPLATE = 'data/smplx_watertight.pkl'
+
 class THumanReconDataset(Dataset):
     def __init__(self, root, cfg,mode='train'):
         self.root = root
         self.mode = mode
-        self.smplx_root = cfg.smpl_root
         self.img_size = cfg.img_size
         self.num_samples = cfg.num_samples
         self.aug_jitter = cfg.aug_jitter
-        self.aug_bg = not cfg.white_bg
+        if mode == 'train':
+            self.aug_bg = not cfg.white_bg
+        else:
+            self.aug_bg = False
         self.object_names = []
-        with open(os.path.join(root,'{}.txt'.format(mode)),'r') as f:
+        with open(os.path.join(os.path.dirname(root),'{}.txt'.format(mode)),'r') as f:
             for i in f.readlines():
-                self.object_names.append(i.strip())
+                if i:
+                    self.object_names.append(i.strip())
         self.num_objects = len(self.object_names)
         
         ob_imgs = os.listdir(os.path.join(root, self.object_names[0],'imgs'))
-        ob_params_pts = os.path.join(root, self.object_names[0],'params','points.npy')
+        ob_params_pts = os.path.join(root, self.object_names[0],'params','point.npy')
         self.num_views = len(ob_imgs)
-        self.num_pts = self.load_npy(ob_params_pts).shape[0]
+        self.num_pts = self.load_npy(ob_params_pts)['xyz'].shape[0]
         
 
         self.transform_rgba= transforms.Compose([
             transforms.Resize((self.img_size, self.img_size), interpolation=transforms.InterpolationMode.BILINEAR),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5,0.5,0.5,0.0], std=[0.5,0.5,0.5,1.0])
+        ])
+        self.transform_rgb= transforms.Compose([
+            transforms.Resize((self.img_size, self.img_size), interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
         ])
         self.jitter = transforms.ColorJitter(brightness=.5, contrast=.5, saturation=.5, hue=.25)
         
@@ -82,21 +85,21 @@ class THumanReconDataset(Dataset):
     
     def get_points(self,file,pts_id):
         """Load point cloud."""
-        point_path = os.path.join(file, 'points.npy')
+        point_path = os.path.join(file, 'point.npy')
         data = self.load_npy(point_path)
-        pts = data['xyz'][pts_id]
-        rgb = data['rgb'][pts_id]
-        nrm = data['nrm'][pts_id]
-        d = data['d'][pts_id]
+        pts = torch.from_numpy(data['xyz'][pts_id])
+        rgb = torch.from_numpy(data['rgb'][pts_id])
+        nrm = torch.from_numpy(data['nrm'][pts_id])
+        d = torch.from_numpy(data['d'][pts_id])
         return pts, rgb, nrm, d
     
     def get_smplx(self, file):
         """load smplx parameters."""
         smplx_path = os.path.join(file, 'smpl.npy')
         data = self.load_npy(smplx_path)
-        smplx = data['vertices']
-        joint_3d = data['joint_3d']
-        vis = data['vis']
+        smplx = torch.from_numpy(data['vertices'])
+        joint_3d = torch.from_numpy(data['joints'])
+        vis = torch.from_numpy(data['vis'])
         return smplx, joint_3d, vis
     
     def get_camera(self, file,view_id):
@@ -111,34 +114,28 @@ class THumanReconDataset(Dataset):
     
     def get_side_view_images(self,file,bg_color):
         """Load side view image."""
-        side_view_rgb_names = ['color_0_masked.png', 'color_1_masked.png', 'color_2_masked.png','color_3_masked.png','color_4_masked.png','color_5_masked.png']
-        side_view_normal_names = ['normals_0_masked.png', 'normals_1_masked.png', 'normals_2_masked.png','normals_3_masked.png','normals_4_masked.png','normals_5_masked.png']
+        side_view_rgb_names = ['color_2_masked.png','color_3_masked.png','color_4_masked.png']
+        side_view_normal_names = ['normals_2_masked.png','normals_3_masked.png','normals_4_masked.png']
         rgbs = []
         normals = []
         for i in side_view_rgb_names:
             img_path = os.path.join(file, 'rgb',i)
             img = Image.open(img_path)
-            img = self.transform_rgba(img)
-            img_mask = img[-1:,...]
-            rgb = img[:-1,...]
-            view_img = self._add_background(rgb, img_mask, bg_color)
-            rgbs.append(view_img)
+            img = self.transform_rgb(img)
+            rgbs.append(img)
         for i in side_view_normal_names:
             img_path = os.path.join(file, 'normal',i)
             img = Image.open(img_path)
-            img = self.transform_rgba(img)
-            img_mask = img[-1:,...]
-            rgb = img[:-1,...]
-            view_img = self._add_background(rgb, img_mask, bg_color)
-            normals.append(view_img)
+            img = self.transform_rgb(img)
+            normals.append(img)
         return rgbs, normals
     
     def get_images(self,file,view_id,back_id,bg_color,R):
         """Load image."""
-        img_path = os.path.join(file, 'view'+str(view_id), 'rgb.png')
-        back_img_path = os.path.join(file, 'view'+str(back_id), 'rgb.png')
-        nrm_path = os.path.join(file, 'view'+str(view_id), 'nrm.png')
-        back_nrm_path = os.path.join(file, 'view'+str(back_id), 'nrm.png')
+        img_path = os.path.join(file,'imgs', 'view'+f"{view_id:02d}", 'rgb.png')
+        back_img_path = os.path.join(file,'imgs', 'view'+f"{view_id:02d}", 'rgb.png')
+        nrm_path = os.path.join(file,'imgs', 'view'+f"{view_id:02d}", 'nrm.png')
+        back_nrm_path = os.path.join(file,'imgs', 'view'+f"{view_id:02d}", 'nrm.png')
         
         
         img = Image.open(img_path)
@@ -161,7 +158,7 @@ class THumanReconDataset(Dataset):
         back_nrm_img = (R @ back_nrm.view(3, -1)).view(3, input_size[0], input_size[1]) * back_img_mask
         
         
-        side_rgbs, side_normals = self.get_side_view_images(os.path.join(file, 'view'+str(view_id)), bg_color)
+        side_rgbs, side_normals = self.get_side_view_images(os.path.join(file,'imgs', 'view'+f"{view_id:02d}"), bg_color)
         return view_img,img_mask,side_rgbs, nrm_img,back_nrm_img,side_normals
     
     
@@ -170,15 +167,17 @@ class THumanReconDataset(Dataset):
     def get_data(self, object_id, pts_id, view_id):
         """Retrieve point sample."""
         
-        object_name = "%04d" % object_id
+        object_name = self.object_names[object_id]
         back_view_id = (view_id + self.num_views // 2 ) % self.num_views
         object_dir = os.path.join(self.root, object_name)
         params_dir = os.path.join(self.root, object_name, 'params')
         pts, rgb, nrm, d = self.get_points(params_dir,pts_id)
         smplx_v, joint_3d, vis = self.get_smplx(params_dir)
+        if smplx_v.shape[0] == 1:
+            smplx_v = smplx_v.squeeze(0)
         eva, azh, rad, pos = self.get_camera(params_dir,view_id)
-        front_vis = vis[view_id].astype(bool)
-        back_vis = vis[back_view_id].astype(bool)
+        front_vis =vis[view_id].bool()
+        back_vis = vis[back_view_id].bool()
         vis_class = torch.zeros_like(front_vis, dtype=torch.float32)
         # assign vis class to 1 if front_vis, -1 if back_vis, 0 if none
         vis_class[front_vis] = 1.0
@@ -195,7 +194,7 @@ class THumanReconDataset(Dataset):
         if self.aug_bg:
             bg_color = (torch.rand(3).float() - 0.5) / 0.5 
         
-        front_image, front_image_mask,side_images, nrm_img,back_nrm_img, side_normals = self.get_images(object_dir, view_id,back_view_id, bg_color,R)
+        front_image, _,side_images, nrm_img,back_nrm_img, side_normals = self.get_images(object_dir, view_id,back_view_id, bg_color,R)
         if self.aug_jitter:
             if torch.rand(1) > 0.5:
                 front_image = self.jitter(front_image)
@@ -208,12 +207,11 @@ class THumanReconDataset(Dataset):
             'd': d,
             'nrm': nrm,
             'rgb': rgb,
-            'idx': object_id,
+            'idx': object_name,
             'smpl_v': smplx_v,
             'vis_class': vis_class.unsqueeze(-1),
             
             'front_image': front_image,
-            'front_mask': front_image_mask,
             'side_images': side_images,
             'front_nrm_img': nrm_img,
             'back_nrm_img': back_nrm_img,
@@ -230,7 +228,11 @@ class THumanReconDataset(Dataset):
         if self.mode == 'train':
             pts_id = np.random.randint(self.num_pts - self.num_samples, size=1)
             pts = np.arange(pts_id, pts_id + self.num_samples)
-            view_id = int(np.random.randint(self.num_views, size=1))
+            obj_name = self.object_names[idx]
+            face_path = os.path.join(self.root, obj_name, 'face_info.npy')
+            views = list(self.load_npy(face_path).keys())
+            view = np.random.choice(views)
+            view_id = int(view[4:])
         else:
             pts =  np.arange(self.num_pts)
             view_id = 0
