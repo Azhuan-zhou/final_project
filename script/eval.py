@@ -118,14 +118,16 @@ def main(config):
     if config.dataset == 'THuman':
         with open(WATERTIGHT_TEMPLATE, 'rb') as f:
             smpl_model = pickle.load(f)
+            smpl_F = smpl_model['smpl_F']
         test_dataset = THumanReconDataset(config.data_root, config,mode='test')
     elif config.dataset == 'cape':
         with open(SMPL_NATURAL, 'rb') as f:
             smpl_model = pickle.load(f)
-        test_dataset = CapeReconDataset(config.data_root, config, smpl_model['smpl_F'],device)
+            smpl_F = smpl_model['smpl_F']
+        test_dataset = CapeReconDataset(config.data_root, config, smpl_F,device)
         
     
-    model = ReconModel(config,smpl_model,can_V)
+    model = ReconModel(config,smpl_F,can_V)
     checkpoint = torch.load(config.ckpt, map_location=device)
     model.load_state_dict(checkpoint['model_state_dict'])
     

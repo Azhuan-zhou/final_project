@@ -111,7 +111,7 @@ class ReconModel(torch.nn.Module):
         log_text += ' | nrm loss: {:>.3E}'.format(self.log_dict['Loss_3D/nrm_loss'])
         
         log_text += ' | lr: {:>.3E}'.format(lr)
-        log.info(log_text)
+        log.info('\n',log_text)
         
         
         

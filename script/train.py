@@ -1,6 +1,6 @@
 
 import os, sys
-os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2,3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0,1,2"
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from models.SiHR import ReconModel
 from dataset.THuman_dataset import THumanReconDataset
@@ -73,7 +73,7 @@ def main(config):
     if config.distribute:
         assert n_gpus > 1, "Distribute=True but only one GPU is available!"
         device_id = int(cfg.device.split(':')[1])
-        model = torch.nn.DataParallel(model, device_ids=[0,1,2,3], output_device=device_id)
+        model = torch.nn.DataParallel(model, device_ids=[0,1,2], output_device=device_id)
     model = model.to(device)
     model_ref = model.module if isinstance(model, torch.nn.DataParallel) else model
 
@@ -189,4 +189,9 @@ if __name__ == "__main__":
     cfg = load_config(args.config, cli_args=extras)
     schema = OmegaConf.structured(TrainConfig)
     cfg = OmegaConf.merge(schema, cfg)
+    handlers = [log.StreamHandler(sys.stdout)]
+    log.basicConfig(level=cfg.log_level,
+                        format='%(asctime)s|%(levelname)8s| %(message)s',
+                        handlers=handlers)
+    log.info(f'Info: \n{cfg}')
     main(cfg)

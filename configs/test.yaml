@@ -5,7 +5,7 @@ save_root: test/
 exp_name: 1d_2d_3d
 dataset: 'cape'
 body_type: 'smpl'
-ckpt: 'ckpt/'
+ckpt: '/home/yqw/home/zsh/final_project/logs/THuman/debug/20250426-214356/model-0000.pth
 #dataset
 data_root: 'data/cape'
 smpl_root: 'data/cape/smpl'
@@ -13,7 +13,7 @@ img_size: 1024
 num_samples: 20480
 white_bg: True
 aug_jitter: False
-
+views: 4
 # test
 subdivide: True
 save_uv: False

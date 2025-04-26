@@ -180,6 +180,7 @@ class TestConfig:
     num_samples: int
     white_bg: bool
     aug_jitter: bool
+    views: int
     
     #feature_extractor:
     use_trans: bool
