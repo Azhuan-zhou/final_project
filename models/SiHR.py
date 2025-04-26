@@ -15,7 +15,7 @@ import logging as log
 from models.geo_model import GeoModel
 from models.tex_model import TexModel
 from models.SMPL_query import SMPL_query
-from models.Feature import FeatureExtractor
+from models.Feature import FeatureExtractor, FeatureExtractor_2v
 from models.PointFeat import PointFeat, SMPLX
 
 
@@ -26,7 +26,14 @@ class ReconModel(torch.nn.Module):
         self.log_dict = {}
         self._init_log_dict()
         #feature extractor
-        self.feature_extractor = FeatureExtractor(cfg)
+        if cfg.views == 4:
+            self.feature_extractor = FeatureExtractor(cfg)
+            print("Using 4 views")
+        elif cfg.views == 2:
+            self.feature_extractor = FeatureExtractor_2v(cfg) 
+            print("Using 2 views")
+        else:
+            raise ValueError("Invalid number of views. Choose 2 or 4.")
         self.use_trans = cfg.use_trans
         # decoder
         smpl_query = SMPL_query(smpl_F, can_V)
@@ -45,7 +52,7 @@ class ReconModel(torch.nn.Module):
     def forward_3D(self,input_data,pts,geo=True,tex=True):
         smpl_v = input_data['smpl_v']
         vis_class = input_data['vis_class']
-        color_feats_map, nrm_feats_map = self.feature_extractor.extract_map(input_data,smpl_v)
+        color_feats_map, nrm_feats_map = self.feature_extractor.extract_map(input_data)
         if geo:
             pred_sdf, pred_nrm = self.geo_model(color_feats_map, nrm_feats_map,pts,smpl_v,vis_class)
         else: 

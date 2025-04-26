@@ -450,3 +450,38 @@ class ViTVQ(pl.LightningModule):
     #     dec = self.decode(quant)
         
     #     return dec
+    
+    
+class ViTVQ_2v(pl.LightningModule):
+    def __init__(self,image_size=512, patch_size=16,channels=3) -> None:
+        super().__init__()
+        
+        self.encoder = ViTEncoder(image_size=image_size, patch_size=patch_size, dim=256,depth=8,heads=8,mlp_dim=2048,channels=channels)
+        self.F_decoder = ViTDecoder(image_size=image_size, patch_size=patch_size, dim=256,depth=3,heads=8,mlp_dim=2048)
+        self.B_decoder= CrossAttDecoder(image_size=image_size, patch_size=patch_size, dim=256,depth=3,heads=8,mlp_dim=2048)
+        # self.quantizer = VectorQuantizer(embed_dim=32,n_embed=8192)
+        # self.pre_quant = nn.Linear(512, 32)
+        # self.post_quant = nn.Linear(32, 512)
+
+
+    def forward(self, x: torch.FloatTensor,smpl_normal) -> torch.FloatTensor:    
+        enc_out = self.encode(x)
+        dec = self.decode(enc_out,smpl_normal)
+        
+        return dec
+
+        
+    def encode(self, x: torch.FloatTensor):
+        h = self.encoder(x)
+        # h = self.pre_quant(h)
+        # quant, emb_loss, _ = self.quantizer(h)
+        
+        return h #, emb_loss
+
+    def decode(self, enc_out: torch.FloatTensor,muti_views):
+        back_query=muti_views['image_B']
+        # quant = self.post_quant(quant)
+        dec_F = self.F_decoder(enc_out)
+        dec_B = self.B_decoder(enc_out,back_query)
+        
+        return (dec_F,dec_B,)
