@@ -97,6 +97,22 @@ def main(config):
     optimizer = AdamW(params,betas=(config.beta1, config.beta2),
                                     weight_decay=config.weight_decay)
     
+    
+
+    epochs = config.epochs
+    start_epoch = 0
+    global_step = 0
+    if config.resume:
+        checkpoint = torch.load(config.resume, map_location=device)
+        start_epoch = checkpoint['epoch']+1
+        global_step = checkpoint['global_step']
+        if isinstance(model, torch.nn.DataParallel):
+            model.module.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            model.load_state_dict(checkpoint['model_state_dict'])
+        log.info(f"Resume training from epoch {start_epoch} and global step {global_step}")
+        #optimizer.load_state_dict(checkpoint['optimizer'])
+        
     lr_scheduler = get_scheduler(
             config.lr_scheduler,
             optimizer=optimizer,
@@ -105,21 +121,10 @@ def main(config):
             num_cycles=config.lr_num_cycles,
             power=config.lr_power,
         )
-
-    epochs = config.epochs
-    start_epoch = 0
-    global_step = 0
-    if config.resume:
-        checkpoint = torch.load(config.resume, map_location=device)
-        start_epoch = checkpoint['epoch']
-        global_step = checkpoint['global_step']
-        if isinstance(model, torch.nn.DataParallel):
-            model.module.load_state_dict(checkpoint['model_state_dict'])
-        else:
-            model.load_state_dict(checkpoint['model_state_dict'])
-        optimizer.load_state_dict(checkpoint['optimizer'])
         
     # ============================================
+    start_epoch = 0
+    global_step = 0
     # ================data preparation=======================
     dataset = THumanReconDataset(config.data_root, config,mode='train')
     loader = DataLoader(dataset=dataset, 
@@ -173,7 +178,12 @@ def main(config):
                     data = move_to_device(data, device)
                     evaluator.test_reconstruction(
                                data, save_path,subdivide=config.subdivide,epoch=epoch)
-                    evaluator.calc_loss(data,global_step,epoch)
+                    _ = model(data)
+            if isinstance(model, torch.nn.DataParallel):
+                model.module.log(global_step, epoch, lr_scheduler.get_last_lr()[0])
+            else:
+                model.log(global_step, epoch, lr_scheduler.get_last_lr()[0])
+                    
                     
             model.train()
             torch.cuda.empty_cache()

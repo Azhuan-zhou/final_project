@@ -1,5 +1,6 @@
 import io 
-import math
+import sys,os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import PIL.Image as Image
 import PIL
 from typing import  Tuple, Optional
@@ -273,6 +274,7 @@ class CapeReconDataset(Dataset):
     def __init__(self,root,cfg, smpl_F,device):
         self.root = root
         self.img_size = cfg.img_size
+        self.device = device
         
         self.image_folder = os.path.join(self.root, 'view')
         self.smpl_folder = os.path.join(self.root, 'smpl')
@@ -286,14 +288,25 @@ class CapeReconDataset(Dataset):
         [x for x in sorted(os.listdir(self.image_folder))]
         
         self.image_list = [os.path.join(self.image_folder,x) for x in self.object_names]
-        self.side_view_folder = [os.path.join(self.image_folder,x,'rgb') for x in self.object_names]
        
         self.smpl_list = [os.path.join(self.smpl_folder, x) for x in self.object_names]
         
         
-        assert len(self.image_list  )  == len( self.side_view_folder) == len(self.smpl_list)
+        assert len(self.image_list  ) == len(self.smpl_list)
         
-        
+        #  set camera
+        look_at = torch.zeros( (2, 3), dtype=torch.float32, device=device)
+        camera_up_direction = torch.tensor( [[0, 1, 0]], dtype=torch.float32, device=device).repeat(2, 1,)
+        camera_position = torch.tensor( [[0, 0, 3],
+                                        [0, 0, -3]], dtype=torch.float32, device=device)
+
+
+        self.camera = kal.render.camera.Camera.from_args(eye=camera_position,
+                                         at=look_at,
+                                         up=camera_up_direction,
+                                         width=self.img_size, height=self.img_size,
+                                         near=-512, far=512,
+                                        fov_distance=1.0, device=device)
 
         
         self.num_objects = len(self.image_list)
@@ -308,6 +321,12 @@ class CapeReconDataset(Dataset):
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5,0.5,0.5,0.0], std=[0.5,0.5,0.5,1.0])
         ])
+        
+        self.transform_rgb = transforms.Compose([
+            transforms.Resize((self.img_size, self.img_size), interpolation=transforms.InterpolationMode.BILINEAR),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.5,0.5,0.5], std=[0.5,0.5,0.5])
+        ])
 
       
         
@@ -319,6 +338,8 @@ class CapeReconDataset(Dataset):
         extrinsic = calib_data[:4, :4]
         intrinsic = calib_data[4:8, :4]
         calib_mat = np.matmul(intrinsic, extrinsic)
+        intrinsic= torch.from_numpy(intrinsic).float()
+        extrinsic = torch.from_numpy(extrinsic).float()
         calib_mat = torch.from_numpy(calib_mat).float()
         return {'calib': calib_mat,"extrinsic": extrinsic, "intrinsic": intrinsic}
         
@@ -333,38 +354,37 @@ class CapeReconDataset(Dataset):
 
     def get_smpl(self,file):
         smpl_obj_path = os.path.join(file, 'smpl.obj')
+        smplx_param = os.path.join(file, 'smpl_param.npz')
+        J_0 = np.load(os.path.join(file, 'smpl_joints.npy'))[0]
+        param = np.load(smplx_param,allow_pickle=True)
+        transl = param['transl']
         smpl_obj =trimesh.load(smpl_obj_path, device=self.device)
-        smpl_v = smpl_obj.vertices
+        smpl_v = smpl_obj.vertices.astype(np.float32) - np.array(transl, dtype=np.float32) + J_0
+        smpl_v = torch.from_numpy(smpl_v)
         return smpl_v
     
     def get_side_view_images(self,file,bg_color):
         """Load side view image."""
-        side_view_rgb_names = ['color_0_masked.png', 'color_2_masked.png', 'color_3_masked.png','color_4_masked.png']
-        side_view_normal_names = ['normals_0_masked.png', 'normals_2_masked.png', 'normals_3_masked.png','normals_4_masked.png']
+        side_view_rgb_names = [ 'color_2_masked.png', 'color_3_masked.png','color_4_masked.png']
+        side_view_normal_names = [ 'normals_2_masked.png', 'normals_3_masked.png','normals_4_masked.png']
         rgbs = []
         normals = []
         for i in side_view_rgb_names:
-            img_path = os.path.join(file, 'rgb',i)
+            img_path = os.path.join(file,'rgb',i)
             img = Image.open(img_path)
-            img = self.transform_rgba(img)
-            img_mask = img[-1:,...]
-            rgb = img[:-1,...]
-            view_img = self.add_background(rgb, img_mask, bg_color)
-            rgbs.append(view_img)
+            img = self.transform_rgb(img)
+            rgbs.append(img)
         for i in side_view_normal_names:
             img_path = os.path.join(file, 'normal',i)
             img = Image.open(img_path)
-            img = self.transform_rgba(img)
-            img_mask = img[-1:,...]
-            rgb = img[:-1,...]
-            view_img = self.add_background(rgb, img_mask, bg_color)
-            normals.append(view_img)
+            img = self.transform_rgb(img)
+
+            normals.append(img)
         return rgbs, normals
     
     def get_images(self,object_id,bg_color):
         """Load image."""
         img_dir = self.image_list[object_id]
-        side_view_dir = self.side_view_folder[object_id]
         img_path = os.path.join(img_dir,'front.png')
         nrm_path = os.path.join(img_dir, 'normal_F.png')
         back_nrm_path = os.path.join(img_dir, 'normal_B.png')
@@ -385,7 +405,7 @@ class CapeReconDataset(Dataset):
         back_nrm = Image.open(back_nrm_path)
         back_nrm = self.transform_rgba(back_nrm)[:3,...]
         back_nrm_img = back_nrm * img_mask
-        side_rgbs, side_normals = self.get_side_view_images(side_view_dir, bg_color)
+        side_rgbs, side_normals = self.get_side_view_images(img_dir, bg_color)
         return view_img,img_mask,side_rgbs, nrm_img,back_nrm_img,side_normals
     
     
@@ -398,13 +418,9 @@ class CapeReconDataset(Dataset):
         calib = self.load_calib(os.path.join(self.image_list[object_id], 'calib.txt'))
         
         front_image, front_image_mask,side_images, nrm_img,back_nrm_img, side_normals = self.get_images(object_id,bg_color)
-        smpl_v,smpl_param = self.get_smpl(self.smpl_list[object_id])
-        vis = render_visiblity(smpl_v, self.F, calib['extrinsic'], calib['intrinsic'], self.img_size,self.device,self.glctx)
-        vis_class = torch.full_like(vis, fill_value=-1.0, dtype=torch.float32)
-        front_vis = vis.bool()
-        vis_class[front_vis] = 1.0
-        
-        smpl_v =projection(smpl_v, calib['calib'])
+        smpl_v = self.get_smpl(self.smpl_list[object_id])
+        vis_class = render_visiblity(self.camera,smpl_v, self.F, self.device, self.glctx, size=(self.img_size, self.img_size))
+
         
      
                 
@@ -437,75 +453,144 @@ class CapeReconDataset(Dataset):
 
         return self.num_objects
 
-def build_projection_matrix_single(K, img_size, near=0.1, far=100.0):
-    """
-    K: [3, 3]
-    """
-    fx, fy = K[0, 0], K[1, 1]
-    cx, cy = K[0, 2], K[1, 2]
-    W = H = img_size
-
-    proj = torch.zeros((4, 4), device=K.device)
-    proj[0, 0] = 2 * fx / W
-    proj[1, 1] = 2 * fy / H
-    proj[0, 2] = 1 - 2 * cx / W
-    proj[1, 2] = 2 * cy / H - 1
-    proj[2, 2] = -(far + near) / (far - near)
-    proj[2, 3] = -2 * far * near / (far - near)
-    proj[3, 2] = -1
-    return proj
 
 
-def rasterize_single(V, F, extrinsic, K, img_size, glctx):
-    """
-    V: [N, 3] 
-    F: [F, 3] 
-    extrinsic: [4, 4] or [3, 4]
-    K: [3, 3] 
-    img_size: int
-    glctx: nvdiffrast context
-    """
-    N = V.shape[0]
-    device = V.device
-
-    V_h = torch.cat([V, torch.ones((N, 1), device=device)], dim=-1)  # [N, 4]
-
-    if extrinsic.shape == (3, 4):
-        extrinsic_h = torch.eye(4, device=device)
-        extrinsic_h[:3, :] = extrinsic
-    else:
-        extrinsic_h = extrinsic
-    V_cam = V_h @ extrinsic_h.T  # [N, 4]
-    proj = build_projection_matrix_single(K, img_size)  # [4, 4]
-    V_clip = V_cam @ proj.T  # [N, 4]
-
-    V_ndc = V_clip[:, :3] / (V_clip[:, 3:] + 1e-8)  # [N, 3]
-
-    rast_out = dr.rasterize(glctx, V_ndc.unsqueeze(0), F.int(), (img_size, img_size), grad_db=False)[0]  # [1, H, W, 4]
-
-    rast_out = torch.flip(rast_out, dims=[1])  # flip H 
-
-    hard_mask = rast_out[..., -1:] != 0  # [1, H, W, 1]
-
-    return rast_out, hard_mask
-
-
-def render_visiblity(smplx_V, F,extrinsic,K,img_size,device,glctx):
-    smplx_V = smplx_V.to(device)
-    F = F.to(device)
-    rast0, _ = rasterize_single(smplx_V, F,extrinsic,K,img_size, glctx)
-
+def render_visiblity(camera, V, F,device,glctx, size=(1024, 1024)):
+    V = V.to(device)
+    vertices_camera = camera.extrinsics.transform(V)
+    face_vertices_camera = kal.ops.mesh.index_vertices_by_faces(
+                        vertices_camera, F)
+    face_normals_z = kal.ops.mesh.face_normals(face_vertices_camera,unit=True)[..., -1:].contiguous()
+    proj = camera.projection_matrix()[0:1]
+    homogeneous_vecs = kal.render.camera.up_to_homogeneous(
+        vertices_camera
+    )[..., None]
+    vertices_clip = (proj @ homogeneous_vecs).squeeze(-1)
+    rast = nvdiffrast.torch.rasterize(
+        glctx, vertices_clip, F.int(),
+        size, grad_db=False
+    )
+    rast0 = torch.flip(rast[0], dims=(1,))
     face_idx = (rast0[..., -1:].long() - 1).contiguous()
     # assign visibility to 1 if face_idx >= 0
     vv = []
     for i in range(rast0.shape[0]):
-        vis = torch.zeros((F.shape[0],), dtype=torch.bool,device=device)
+        vis = torch.zeros((F.shape[0],), dtype=torch.bool, device=device)
         for f in range(F.shape[0]):
             vis[f] = 1 if torch.any(face_idx[i] == f) else 0
         vv.append(vis)
-    vis = torch.stack(vv, dim=0)
+    front_vis = vv[0].bool()
+    back_vis = vv[1].bool()
+    vis_class = torch.zeros((F.shape[0], 1), dtype=torch.float32)
+    vis_class[front_vis] = 1.0
+    vis_class[back_vis] = -1.0
 
-    return vis
+    return vis_class.squeeze(-1)
 
+import plotly.graph_objs as go
+import plotly.offline as offline
+
+def visualize_visible_vertices_3d(vertices, faces, vis, save_path='vis_3d.html'):
+    """
+    vertices: [N, 3] (Tensor or ndarray)
+    faces: [F, 3] (Tensor or ndarray)
+    vis: [F] bool Tensor or ndarray
+    save_path: output html path
+    """
+    if isinstance(vertices, torch.Tensor):
+        vertices = vertices.detach().cpu().numpy()
+    if isinstance(faces, torch.Tensor):
+        faces = faces.detach().cpu().numpy()
+    if isinstance(vis, torch.Tensor):
+        vis = vis.detach().cpu().numpy()
+    if vis.shape[0] == 1:
+        vis = vis.squeeze(0)
+    print(vis.shape)
+    print("可见面片数量:", vis.sum().item())
+    # 获取可见的面片索引
+    visible_faces = faces[vis]
+
+    # 使用三角面片绘制 mesh
+    mesh = go.Mesh3d(
+        x=vertices[:, 0],
+        y=vertices[:, 1],
+        z=vertices[:, 2],
+        i=visible_faces[:, 0],
+        j=visible_faces[:, 1],
+        k=visible_faces[:, 2],
+        color='lightblue',
+        opacity=0.9,
+        name='Visible Mesh'
+    )
+
+    layout = go.Layout(
+        scene=dict(
+            xaxis=dict(visible=False),
+            yaxis=dict(visible=False),
+            zaxis=dict(visible=False),
+        ),
+        margin=dict(l=0, r=0, t=0, b=0),
+        showlegend=False
+    )
+
+    fig = go.Figure(data=[mesh], layout=layout)
+    offline.plot(fig, filename=save_path, auto_open=False)
+    
 if __name__ == "__main__":
-    dataset = CapeReconDataset(root='/home/yqw/home/zsh/final_project/data/cape',cfg=None, smpl_F=None,device='cuda')
+    import pickle
+    import argparse
+    
+    from omegaconf import OmegaConf
+    
+    from configs.misc import load_config, TrainConfig
+    from torch.utils.data import DataLoader
+    from dataset.THuman_dataset import project
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str,default='configs/train.yaml')
+    args, extras = parser.parse_known_args()
+     
+
+    # parse YAML config to OmegaConf
+    cfg = load_config(args.config, cli_args=extras)
+    schema = OmegaConf.structured(TrainConfig)
+    cfg = OmegaConf.merge(schema, cfg)
+    smpl_path = "/home/yqw/home/zsh/final_project/data/body_models/smpl/SMPL_NEUTRAL.pkl"
+    with open(smpl_path, 'rb') as f:
+       watertight = pickle.load(f, encoding='latin1')
+       smpl_F = watertight['f']
+       smpl_F = torch.as_tensor(smpl_F.astype(np.int32)).long()
+    dataset = CapeReconDataset('/home/yqw/home/zsh/final_project/data/cape',cfg, smpl_F, 'cuda:3')
+    #(smpl_F.shape)
+    dl =  DataLoader(dataset=dataset,batch_size=1,shuffle=True)
+    sample_batch = next(iter(dl))
+    smplx_v = sample_batch['smpl_v']
+
+    front_img = sample_batch['front_image']
+    side_imgs = sample_batch['side_images']
+    smplx_xy = smplx_v[:,:,:2]
+    smplx_zy = smplx_v[:,:,[2,1]]
+    smplx_zy[...,0] = -smplx_zy[...,0]
+    smplx_zy[...,1] = smplx_zy[...,1]
+    import numpy as np
+    import matplotlib.pyplot as plt
+    F_p = smplx_xy[0]
+    B_p = smplx_xy[0]
+    
+    L_p= smplx_zy[0]
+    R_p = smplx_zy[0]
+  
+    project(F_p,front_img[0],'smplx_f.png')
+    project(B_p,side_imgs[1][0],'smplx_b.png')
+    project(L_p,side_imgs[0][0],'smplx_l.png')
+    project(R_p,side_imgs[2][0],'smplx_r.png')
+    
+    vertices = sample_batch['smpl_v'][0]
+    faces = dataset.F
+    vis = sample_batch['vis_class'][0].squeeze(-1) > 0
+
+    #visualize_visible_vertices_3d(vertices, faces, vis, save_path='visible_3d.html')
+    print(sample_batch['idx'])
+    
+       
+    
+    

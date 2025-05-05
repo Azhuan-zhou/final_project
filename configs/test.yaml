@@ -1,12 +1,14 @@
 #global
 seed: 2434
-device: 'cuda:3'
+device: 'cuda:0'
 save_root: test/
-exp_name: eval
-dataset: 'THuman'
-ckpt: '/home/yqw/home/zsh/final_project/logs/THuman/debug/20250426-214356/model-0000.pth'
+exp_name: recon
+dataset: 'custom'
+body_type: 'smplx'
+ckpt: '/home/yqw/home/zsh/final_project/logs/THuman/Train_4v/20250428-140034/model-0950.pth'
 #dataset
-data_root: '/home/yqw/home/zsh/final_project/data/THuman/THuman_dataset'
+data_root: '/home/yqw/home/zsh/final_project/data/example/mv'
+GT_root: '/home/yqw/home/zsh/final_project/data/THuman/THuman_obj'
 img_size: 512
 num_samples: 20480
 white_bg: True

@@ -37,9 +37,9 @@ class ReconModel(torch.nn.Module):
         self.use_trans = cfg.use_trans
         # decoder
         smpl_query = SMPL_query(smpl_F, can_V)
-        if cfg.dataset == 'THuman':
+        if cfg.body_type == 'smplx':
             smpl_F_point_feat = torch.as_tensor(SMPLX().smplx_faces).long()
-        elif cfg.body_type == 'cape':
+        elif cfg.body_type == 'smpl':
             smpl_F_point_feat  = torch.as_tensor(SMPLX().smpl_faces).long()
         else:
             raise ValueError("Invalid body type. Choose 'smplx' or 'smpl'.")
@@ -118,7 +118,8 @@ class ReconModel(torch.nn.Module):
         log_text += ' | nrm loss: {:>.3E}'.format(self.log_dict['Loss_3D/nrm_loss'])
         
         log_text += ' | lr: {:>.3E}'.format(lr)
-        log.info('\n',log_text)
+        log.info(log_text)
+        self._init_log_dict()
         
         
         

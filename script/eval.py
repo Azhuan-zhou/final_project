@@ -15,12 +15,22 @@ import pickle
 from dataset.THuman_dataset import THumanReconDataset
 from dataset.CAPE_dataset import CapeReconDataset
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 torch.backends.cudnn.benchmark = True
 CANONICAL_TEMPLATE = 'data/body_models/smpl_data/smplx_canonical.obj'
+SMPL_CANONICAL_TEMPLATE = 'data/body_models/smpl_data/smpl_canonical.obj'
 WATERTIGHT_TEMPLATE = 'data/body_models/smpl_data/smplx_watertight.pkl'
-SMPL_NATURAL = 'data/body_models/smpl/smplx_natural.pkl'
+SMPL_NATURAL = 'data/body_models/smpl/SMPL_NEUTRAL.pkl'
 
-
+def move_to_device(batch, device):
+    for k, v in batch.items():
+        if isinstance(v, torch.Tensor):
+            batch[k] = v.to(device)
+        elif isinstance(v, list):
+            batch[k] = [item.to(device) if isinstance(item, torch.Tensor) else item for item in v]
+        elif k == 'idx':
+            continue
+    return batch
         
 def test_step(cfg,model,batch,device):
     
@@ -43,17 +53,22 @@ def test_step(cfg,model,batch,device):
             pre_obj_path = reconstrcut(cfg,model,batch,device)
         end_time=time.time()
         mesh_pred = trimesh.load(pre_obj_path)
-        mesh_gt = trimesh.load(os.path.join(cfg.gt_path, mesh_name,'{}.obj'.format(mesh_name)))
+        mesh_gt = trimesh.load(os.path.join(cfg.GT_root, '{}.obj'.format(mesh_name)))
         verts_pr, faces_pr = mesh_pred.vertices, mesh_pred.faces
         verts_gt, faces_gt = mesh_gt.vertices, mesh_gt.faces
 
         if cfg.clean_mesh_flag:
-            verts_pr, faces_pr = clean_mesh(verts_pr, faces_pr)
+            verts_pr, faces_pr = clean_mesh(verts_pr, faces_pr,device)
         
-        icp = trimesh.registration.icp(verts_pr, faces_pr)
+        icp = trimesh.registration.icp(verts_pr, verts_gt)
 
         mesh_pred_icp = trimesh.Trimesh(vertices=icp[1], faces=faces_pr, process=False)
+        
         verts_pred_icp, faces_pred_icp = mesh_pred_icp.vertices, mesh_pred_icp.faces
+        verts_pred_icp = torch.tensor(verts_pred_icp).float().to(device)
+        faces_pred_icp = torch.tensor(faces_pred_icp).long().to(device)
+        verts_gt = torch.tensor(verts_gt).float().to(device)    
+        faces_gt = torch.tensor(faces_gt).long().to(device)
         src_mesh = VF2Mesh(verts_pred_icp, faces_pred_icp )
         tgt_mesh = VF2Mesh(verts_gt, faces_gt)
         
@@ -90,7 +105,7 @@ def test_epoch_end(cfg,outputs):
                 "cape-easy": (0, 50),
                 "cape-hard": (50, 150)
             }
-        elif cfg.dataset  == 'Thuman2.0':
+        elif cfg.dataset  == 'THuman':
             split = {
                 "Thuman2.0": (0,21)
             }
@@ -115,17 +130,21 @@ def main(config):
     random.seed(config.seed)
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
-    can_V, _ = load_obj(CANONICAL_TEMPLATE)
+   
     if config.dataset == 'THuman':
         with open(WATERTIGHT_TEMPLATE, 'rb') as f:
             smpl_model = pickle.load(f)
             smpl_F = smpl_model['smpl_F']
+        can_V, _ = load_obj(CANONICAL_TEMPLATE)
         test_dataset = THumanReconDataset(config.data_root, config,mode='test')
     elif config.dataset == 'cape':
         with open(SMPL_NATURAL, 'rb') as f:
-            smpl_model = pickle.load(f)
-            smpl_F = smpl_model['smpl_F']
+            smpl_model = pickle.load(f, encoding='latin1')
+            smpl_F = smpl_model['f']
+            smpl_F = torch.as_tensor(smpl_F.astype(np.int32)).long()
+        can_V, _ = load_obj(SMPL_CANONICAL_TEMPLATE)
         test_dataset = CapeReconDataset(config.data_root, config, smpl_F,device)
+        
         
     
     model = ReconModel(config,smpl_F,can_V)
@@ -139,7 +158,8 @@ def main(config):
                                 num_workers=0,
                                 pin_memory=True)
     outputs = []
-    for data in test_loader:
+    for data in tqdm(test_loader,desc='Testing'):
+        data = move_to_device(data, device)
         test_log = test_step(config,model,data,device)
         outputs.append(test_log)
     test_epoch_end(cfg,outputs)

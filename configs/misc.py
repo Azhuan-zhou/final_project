@@ -167,6 +167,7 @@ class TestConfig:
     exp_name: str
     dataset: str
     ckpt: str
+    body_type: str
     
     # test
     subdivide: bool
@@ -176,6 +177,7 @@ class TestConfig:
     
     #dataset
     data_root: str
+    GT_root: str
     img_size: int
     num_samples: int
     white_bg: bool

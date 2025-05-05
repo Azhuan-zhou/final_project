@@ -4,7 +4,6 @@ Copyright (C) 2024  ETH Zurich, Hsuan-I Ho
 
 import os
 import math
-import h5py
 import torch
 import nvdiffrast
 import pickle
@@ -19,12 +18,14 @@ import pdb
 ###################################################################
 device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
 glctx = nvdiffrast.torch.RasterizeCudaContext(device=device)
-dt = h5py.special_dtype(vlen=np.uint8)
+
 UV_TEMPLATE = 'data/body_models/smplx_uv.obj'
 WATERTIGHT_TEMPLATE = 'data/body_models/smplx_watertight.pkl'
 
 ###################################################################
-    
+
+
+
 def rasterize(camera, V, F, args):
 
     vertices_camera = camera.extrinsics.transform(V)

@@ -187,18 +187,16 @@ def calculate_normal_consist(tgt_mesh,src_mesh,normal_path,render):
             #print('normal error:', error)
             return error
         
-def clean_mesh(verts, faces):
+def clean_mesh(verts, faces,device):
 
-    device = verts.device
-
-    mesh_lst = trimesh.Trimesh(verts.detach().cpu().numpy(),
-                               faces.detach().cpu().numpy())
+    mesh_lst = trimesh.Trimesh(verts,
+                               faces)
     mesh_lst = mesh_lst.split(only_watertight=False)
     comp_num = [mesh.vertices.shape[0] for mesh in mesh_lst]
     mesh_clean = mesh_lst[comp_num.index(max(comp_num))]
 
-    final_verts = torch.as_tensor(mesh_clean.vertices).float().to(device)
-    final_faces = torch.as_tensor(mesh_clean.faces).int().to(device)
+    final_verts = torch.as_tensor(mesh_clean.vertices).float().cpu().numpy()
+    final_faces = torch.as_tensor(mesh_clean.faces).int().cpu().numpy()
 
     return final_verts, final_faces
 
@@ -209,10 +207,16 @@ def reconstrcut(config,model,data,device):
     np.random.seed(config.seed)
     torch.manual_seed(config.seed)
     evaluator = Evaluator(config, watertight, can_V,device,model)
-    save_path = os.path.join(config.save_folder, 'meshes')
+    save_path = os.path.join(config.save_root,config.dataset ,config.exp_name,'meshes')
+    if os.path.exists(save_path):
+        fname = data['idx'][0]
+        obj_path = os.path.join(save_path, '%s_reco.obj' % (fname))
+        if os.path.exists(obj_path):
+            print('Mesh already exists, skip reconstruction')
+            return obj_path
     os.makedirs(save_path, exist_ok=True)
     with torch.no_grad():
-        obj_path = evaluator.test_reconstruction(data, save_path, subdivide=config.subdivide, save_uv=config.save_uv)
+        obj_path = evaluator.test_reconstruction(data, save_path, subdivide=config.subdivide, save_uv=config.save_uv,chunk_size=6e5)
     return obj_path
 
 

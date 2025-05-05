@@ -139,10 +139,12 @@ class GeoModel(nn.Module):
         R_plane_feat1,R_plane_feat2=R_plane_feat.chunk(2,dim=1)
         xy =  pts[:,:,:2]
         zy = pts[:,:,[2,1]]
+        zy[..., 0] = -zy[..., 0]
         
 
         smplx_xy = smplx_pts[:,:,:2]
         smplx_zy = smplx_pts[:,:,[2,1]]
+        smplx_zy[..., 0] = -smplx_zy[..., 0]
         
         F_feat = self._query_feature(F_plane_feat1, xy)  # [B, C,N]
         B_feat = self._query_feature(B_plane_feat1, xy)  # [B, C, N]

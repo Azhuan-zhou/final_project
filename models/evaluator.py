@@ -202,23 +202,4 @@ class Evaluator(nn.Module):
         log.info(f"Reconstruction finished in {end-start} seconds.")
         
         return obj_path
-    
-    def calc_loss(self, data,step,epoch):
-        
-        pts = data['pts']
-        pred_sdf, pred_nrm, pred_rgb = self.model.forward_3D(data, pts, geo=True, tex=True)
-        gts = data['d']
-        rgb = data['rgb']
-        nrm = data['nrm']
-        # Compute 3D losses
-        reco_loss = torch.abs(pred_sdf - gts).mean()
-        rgb_loss = torch.abs(pred_rgb - rgb).mean()
-        nrm_loss = torch.abs(1 - F.cosine_similarity(pred_nrm, nrm, dim=-1)).mean()
-        loss_3D = reco_loss * self.cfg.lambda_sdf + rgb_loss * self.cfg.lambda_rgb + nrm_loss * self.cfg.lambda_nrm
-        log_text = 'Validation: STEP {} - EPOCH {}/{}'.format(step, epoch, self.cfg.epochs)
-        log_text += ' | 3D loss: {:>.3E}'.format(loss_3D.item())
-        log_text += ' | reco loss: {:>.3E}'.format(reco_loss.item())
-        log_text += ' | rgb loss: {:>.3E}'.format(rgb_loss.item())
-        log_text += ' | nrm loss: {:>.3E}'.format(nrm_loss.item())
-        log.info(log_text)
        

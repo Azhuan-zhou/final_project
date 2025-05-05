@@ -294,10 +294,10 @@ class Render:
             if cam_id in cam_ids:
                 self.init_renderer(self.get_camera(cam_id), "clean_mesh", bg)
                 if len(cam_ids) == 4:
-                    rendered_img = (self.renderer(meshes[0])[0:1, :, :, :3].permute(0, 3, 1, 2) -
+                    rendered_img = (self.renderer(mesh[0])[0:1, :, :, :3].permute(0, 3, 1, 2) -
                                     0.5) * 2.0
                 else:
-                    rendered_img = (self.renderer(meshes[0])[0:1, :, :, :3].permute(0, 3, 1, 2) -
+                    rendered_img = (self.renderer(mesh[0])[0:1, :, :, :3].permute(0, 3, 1, 2) -
                                     0.5) * 2.0
                 if cam_id == 2 and len(cam_ids) == 2:
                     rendered_img = torch.flip(rendered_img, dims=[3])

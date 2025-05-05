@@ -2,8 +2,12 @@
 Copyright (C) 2024  ETH Zurich, Hsuan-I Ho
 """
 import io 
+import sys,os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import math
 import PIL.Image as Image
+
+
 import numpy as np
 import os
 import torch
@@ -96,6 +100,7 @@ class THumanReconDataset(Dataset):
     def get_smplx(self, file):
         """load smplx parameters."""
         smplx_path = os.path.join(file, 'smpl.npy')
+        
         data = self.load_npy(smplx_path)
         smplx = torch.from_numpy(data['vertices'])
         joint_3d = torch.from_numpy(data['joints'])
@@ -112,20 +117,26 @@ class THumanReconDataset(Dataset):
         cam_pos = data['cam_pos'][view_id]
         return cam_eva, cam_azh, cam_rad, cam_pos
     
-    def get_side_view_images(self,file,bg_color):
+    
+    
+    def get_side_view_images(self,file):
         """Load side view image."""
         side_view_rgb_names = ['color_2_masked.png','color_3_masked.png','color_4_masked.png']
         side_view_normal_names = ['normals_2_masked.png','normals_3_masked.png','normals_4_masked.png']
         rgbs = []
         normals = []
+
         for i in side_view_rgb_names:
             img_path = os.path.join(file, 'rgb',i)
             img = Image.open(img_path)
+            #img = affine(img)
             img = self.transform_rgb(img)
+            
             rgbs.append(img)
         for i in side_view_normal_names:
             img_path = os.path.join(file, 'normal',i)
             img = Image.open(img_path)
+            #img = affine(img)
             img = self.transform_rgb(img)
             normals.append(img)
         return rgbs, normals
@@ -158,7 +169,7 @@ class THumanReconDataset(Dataset):
         back_nrm_img = (R @ back_nrm.view(3, -1)).view(3, input_size[0], input_size[1]) * back_img_mask
         
         
-        side_rgbs, side_normals = self.get_side_view_images(os.path.join(file,'imgs', 'view'+f"{view_id:02d}"), bg_color)
+        side_rgbs, side_normals = self.get_side_view_images(os.path.join(file,'imgs', 'view'+f"{view_id:02d}"))
         return view_img,img_mask,side_rgbs, nrm_img,back_nrm_img,side_normals
     
     
@@ -234,7 +245,7 @@ class THumanReconDataset(Dataset):
             view = np.random.choice(views)
             view_id = int(view[4:])
         else:
-            pts =  np.arange(self.num_pts)
+            pts =  np.arange(self.num_pts)[:self.num_samples]
             view_id = 0
 
         return self.get_data(idx, pts, view_id)
@@ -246,43 +257,70 @@ class THumanReconDataset(Dataset):
         """Return length of dataset (number of _samples_)."""
 
         return self.num_objects
+
+def project(xy,img,name):
+    import matplotlib.pyplot as plt
+    xy =torch.clip(xy, -1, 1).clone().cpu().numpy()
+   
+    _, img_H, img_W = img.shape
+    xy[:,1 ]= -xy[:,1]  # y轴翻转
+    xy_pixel = (xy + 1) / 2.0  # 归一化到[0,1]
+    xy_pixel[:, 0] = xy_pixel[:, 0] * img_W  # x轴放缩
+    xy_pixel[:, 1] = xy_pixel[:, 1] * img_H  # y轴放缩
+    img_np = img.permute(1, 2, 0).cpu().numpy()  # (H, W, C)
+    img_np = (img_np + 1) / 2.0  # 还原到 [0,1]
+    img_np = np.clip(img_np, 0, 1)
+    # 4. 画图
+    plt.figure(figsize=(8,8))
+    plt.imshow(img_np)
+    plt.scatter(xy_pixel[:, 0], xy_pixel[:, 1], s=1, c='r')  # 点很小，红色
+    plt.axis('off')
+    plt.savefig(name, dpi=300, bbox_inches='tight')
     
+if __name__ == "__main__":
+    import argparse
     
-def get_visibility(xy, z, faces):
-    """get the visibility of vertices
+    from omegaconf import OmegaConf
+    
+    from configs.misc import load_config, TrainConfig
+    from torch.utils.data import DataLoader
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str,default='configs/train.yaml')
+    args, extras = parser.parse_known_args()
+     
 
-    Args:
-        xy (torch.tensor): [N,2]
-        z (torch.tensor): [N,1]
-        faces (torch.tensor): [N,3]
-        size (int): resolution of rendered image
-    """
-
-    xyz = torch.cat((xy, -z), dim=1)
-    xyz = (xyz + 1.0) / 2.0
-    faces = faces.long()
-
-    rasterizer = Pytorch3dRasterizer(image_size=2**12)
-    meshes_screen = Meshes(verts=xyz[None, ...], faces=faces[None, ...])
-    raster_settings = rasterizer.raster_settings
-
-    pix_to_face, zbuf, bary_coords, dists = rasterize_meshes(
-        meshes_screen,
-        image_size=raster_settings.image_size,
-        blur_radius=raster_settings.blur_radius,
-        faces_per_pixel=raster_settings.faces_per_pixel,
-        bin_size=raster_settings.bin_size,
-        max_faces_per_bin=raster_settings.max_faces_per_bin,
-        perspective_correct=raster_settings.perspective_correct,
-        cull_backfaces=raster_settings.cull_backfaces,
-    )
-
-    vis_vertices_id = torch.unique(faces[torch.unique(pix_to_face), :])
-    vis_mask = torch.zeros(size=(z.shape[0], 1))
-    vis_mask[vis_vertices_id] = 1.0
-
-    # print("------------------------\n")
-    # print(f"keep points : {vis_mask.sum()/len(vis_mask)}")
-
-    return vis_mask
-
+    # parse YAML config to OmegaConf
+    cfg = load_config(args.config, cli_args=extras)
+    schema = OmegaConf.structured(TrainConfig)
+    cfg = OmegaConf.merge(schema, cfg)
+    dataset = THumanReconDataset(cfg.data_root,cfg,mode='train')
+    dl =  DataLoader(dataset=dataset,batch_size=1,shuffle=True)
+    sample_batch = next(iter(dl))
+    smplx_v = sample_batch['smpl_v']
+    print(smplx_v.shape)
+    front_img = sample_batch['front_image']
+    side_imgs = sample_batch['side_images']
+    smplx_xy = smplx_v[:,:,:2]
+    smplx_zy = smplx_v[:,:,[2,1]]
+    smplx_zy[...,0] = -smplx_zy[...,0]
+    smplx_zy[...,1] = smplx_zy[...,1]
+    import numpy as np
+    import matplotlib.pyplot as plt
+    F_p = smplx_xy[0]
+    B_p = smplx_xy[0]
+    
+    L_p= smplx_zy[0]
+    R_p = smplx_zy[0]
+    pts = sample_batch['pts']
+    pts_xy = pts[:,:,:2]
+    pts_zy = pts[:,:,[2,1]]
+    pts_zy[...,0] = -pts_zy[...,0]
+    pts_zy[...,1] = pts_zy[...,1]
+    project(F_p,front_img[0],'smplx_f.png')
+    project(B_p,side_imgs[1][0],'smplx_b.png')
+    project(L_p,side_imgs[0][0],'smplx_l.png')
+    project(R_p,side_imgs[2][0],'smplx_r.png')
+    project(pts_xy[0],front_img[0],'pts_f.png')
+    project(pts_xy[0],side_imgs[1][0],'pts_b.png')     
+    project(pts_zy[0],side_imgs[0][0],'pts_l.png')
+    project(pts_zy[0],side_imgs[2][0],'pts_r.png')
